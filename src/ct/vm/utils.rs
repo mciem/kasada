@@ -1,15 +1,16 @@
 const CHARSET: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 pub fn get_vm_bytes(instructions: &str) -> Vec<i64> {
+    let chars = instructions.chars().collect::<Vec<char>>();
     let mut bytes = Vec::new();
 
     let mut m = 0;
-    while m < instructions.len() {
+    while m < chars.len() {
         let mut h = 0;
         let mut l = 1;
 
         loop {
-            let x = CHARSET.find(instructions.as_bytes()[m] as char).unwrap() as i64;
+            let x = CHARSET.find(chars[m]).unwrap_or(0) as i64;
             m += 1;
 
             h += l * (x % 50 as i64);
