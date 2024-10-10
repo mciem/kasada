@@ -36,7 +36,7 @@ fn decode_string(encoded: &[i64], index: &mut usize) -> String {
         .map(|_| {
             let k = encoded[*index];
             *index += 1;
-            let char_code = (k as u32 & 0xFFFFFFC0) | ((k * 39) & 63) as u32;
+            let char_code = (k as u32 & 0xFFFFFFC0) | ((k * 15) & 63) as u32;
             char::from_u32(char_code).unwrap_or('\0')
         })
         .collect()
@@ -44,7 +44,7 @@ fn decode_string(encoded: &[i64], index: &mut usize) -> String {
 
 pub fn decode_vm_bytes(mut vm_bytes: Vec<i64>) -> (String, Vec<i64>) {
     let len = vm_bytes.len() as i64;
-    let offset = (vm_bytes[len as usize - 1] ^ len) as usize;
+    let offset = (vm_bytes[len as usize - 1] ^ (len + 4)) as usize;
 
     let f_len = vm_bytes[offset + 1] as usize + 2;
     let f: Vec<i64> = vm_bytes[offset..offset + f_len].to_vec();

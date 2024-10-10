@@ -1,27 +1,33 @@
-pub fn parse(bytes: Vec<i64>, decoded: &str) -> Vec<String> {
-    let chars = decoded.chars().collect::<Vec<char>>();
+use swc_common::sync::Lrc;
+use swc_common::{FileName, SourceMap};
+use swc_ecma_parser::{EsSyntax, Parser, StringInput, Syntax};
+use swc_ecma_visit::VisitWith;
 
-    let mut i = 1;
-    let mut result = Vec::new();
+use crate::ct::vm::visitors::opcodes::{OpcodeVisitor, Opcodes};
 
-    while i < bytes.len() {
-        let opcode = bytes[i];
-        i += 1;
+pub fn parse(js_code: &str) -> Opcodes {
+    let cm: Lrc<SourceMap> = Default::default();
 
-        if opcode == 32 {
-            i += 2;
+    let fm = cm.new_source_file(
+        Lrc::new(FileName::Custom("input.js".into())),
+        js_code.into(),
+    );
 
-            let x = bytes[i] as usize;
-            i += 1;
+    let lexer = swc_ecma_parser::lexer::Lexer::new(
+        Syntax::Es(EsSyntax {
+            jsx: true,
+            ..Default::default()
+        }),
+        Default::default(),
+        StringInput::from(&*fm),
+        None,
+    );
 
-            let y = bytes[i] as usize;
-            i += 1;
+    let mut parser = Parser::new_from(lexer);
+    let module = parser.parse_module().expect("Failed to parse module");
 
-            let word: String = (x..(x + y)).map(|j| chars[bytes[j] as usize]).collect();
+    let mut visitor = OpcodeVisitor::new();
+    module.visit_with(&mut visitor);
 
-            result.push(word);
-        }
-    }
-
-    result
+    visitor.opcodes
 }
