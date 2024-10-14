@@ -5,17 +5,13 @@ s = ""
 
 while len(base2) > 0:
     z = base2[len(base2)-1]
-    z -= len(base2)-1
-    z += 1
-    z -= len(base2)-1
-    z -= len(base2)-1
+    z -= len(base2)-2
     z &= 65535
 
-    zz = z >> 18
-    zzz = z << 3
+    zz = z >> 11
+    zzz = z << 5
 
     zzzz = zz | zzz
-    zzzz &= 65535
     s += chr(zzzz)
 
     base2 = base2[:len(base2)-1]

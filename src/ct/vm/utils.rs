@@ -1,4 +1,19 @@
+use super::visitors::opcodes::GetType;
+
 const CHARSET: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+#[derive(Debug, Clone)]
+pub enum ValueType {
+    INDEX,
+    LITERAL,
+    UNKNOWN,
+}
+
+#[derive(Debug, Clone)]
+pub struct Value {
+    pub value: i64,
+    pub value_type: ValueType,
+}
 
 pub fn get_vm_bytes(instructions: &str) -> Vec<i64> {
     let chars = instructions.chars().collect::<Vec<char>>();
@@ -36,7 +51,7 @@ fn decode_string(encoded: &[i64], index: &mut usize) -> String {
         .map(|_| {
             let k = encoded[*index];
             *index += 1;
-            let char_code = (k as u32 & 0xFFFFFFC0) | ((k * 15) & 63) as u32;
+            let char_code = (k as u32 & 0xFFFFFFC0) | ((k * 59) & 63) as u32;
             char::from_u32(char_code).unwrap_or('\0')
         })
         .collect()
@@ -52,4 +67,23 @@ pub fn decode_vm_bytes(mut vm_bytes: Vec<i64>) -> (String, Vec<i64>) {
 
     let decoded = decode_string(&f, &mut 0);
     (decoded, vm_bytes)
+}
+
+pub fn get_value(t: GetType, x: i64) -> Value {
+    if GetType::L == t || x & 1 != 1 {
+        Value {
+            value: x >> 5,
+            value_type: ValueType::INDEX,
+        }
+    } else if GetType::E == t {
+        Value {
+            value: x >> 1,
+            value_type: ValueType::LITERAL,
+        }
+    } else {
+        Value {
+            value: 0,
+            value_type: ValueType::UNKNOWN,
+        }
+    }
 }

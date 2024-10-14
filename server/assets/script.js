@@ -11,15 +11,7 @@ let logData = "";
 function log(opcode, ...args) {
   try {
     if (LOG) {
-      if (opcode == "RIGHT_SHIFT") {
-        console.log();
-      }
-
-      if (opcode == "LEFT_SHIFT") {
-        console.log();
-      }
-
-      if (opcode == "BITWISE_AND") {
+      if (opcode == "SUB") {
         console.log();
       }
 
@@ -79,13 +71,7 @@ function downloadLog() {
     v = function (v, u, f, a) {
       var r = v[u[0]++];
 
-      //log("IDK", [r]);
       if (r & 1) {
-        let ret = r >> 1;
-        if (ret == 14) {
-          log("AAA", [14, r]);
-        }
-
         return r >> 1;
       }
       if (r === f[5]) {
@@ -95,6 +81,7 @@ function downloadLog() {
           l = (t & 2146435072) >> 20,
           x =
             (t & 1048575) * Math.pow(2, 32) + (M < 0 ? M + Math.pow(2, 32) : M);
+
         return l === 2047
           ? x
             ? NaN
@@ -184,7 +171,11 @@ function downloadLog() {
     },
     function (n, e, a, _, u) {
       var r = u[0];
-      a(n, r[e(n)]);
+      let x = e(n);
+
+      log("GET_PROPERTY", [r, x, r[x]]);
+
+      a(n, r[x]);
     },
     function (n, e, a, _, u, r) {
       var l = r[5];
@@ -470,9 +461,6 @@ function downloadLog() {
 
       let x = l(n);
       let y = e(n);
-      if (y == 14) {
-        console.log();
-      }
 
       log("RIGHT_SHIFT", [x, y, x >> y]);
 
