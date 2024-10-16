@@ -19,13 +19,19 @@ pub struct Opcode {
 pub struct Opcodes {
     pub r_shift: Vec<Opcode>,
     pub l_shift: Vec<Opcode>,
+    pub not: Vec<Opcode>,
     pub xor: Vec<Opcode>,
     pub and: Vec<Opcode>,
     pub or: Vec<Opcode>,
     pub add: Vec<Opcode>,
     pub subtract: Vec<Opcode>,
+    pub multiply: Vec<Opcode>,
+    pub divide: Vec<Opcode>,
+    pub modulus: Vec<Opcode>,
     pub store_global: Vec<Opcode>,
+    pub get_global: Vec<Opcode>,
     pub get_property: Vec<Opcode>,
+    pub delete: Vec<Opcode>,
 }
 
 pub struct OpcodeVisitor {
@@ -36,21 +42,18 @@ pub struct OpcodeVisitor {
 
 impl OpcodeVisitor {
     fn determine_type(expr: &Expr) -> GetType {
-        match expr {
-            Expr::Call(call_expr) => {
-                if let Callee::Expr(callee_expr) = &call_expr.callee {
-                    if let Expr::Ident(ident) = &**callee_expr {
-                        match ident.sym.as_ref() {
-                            "e" => return GetType::E,
-                            "l" => return GetType::L,
-                            _ => {
-                                return GetType::Unknown;
-                            }
+        if let Expr::Call(call_expr) = expr {
+            if let Callee::Expr(callee_expr) = &call_expr.callee {
+                if let Expr::Ident(ident) = &**callee_expr {
+                    match ident.sym.as_ref() {
+                        "e" => return GetType::E,
+                        "l" => return GetType::L,
+                        _ => {
+                            return GetType::Unknown;
                         }
                     }
                 }
             }
-            _ => {}
         }
         GetType::Unknown
     }
@@ -60,13 +63,19 @@ impl OpcodeVisitor {
             opcodes: Opcodes {
                 r_shift: Vec::new(),
                 l_shift: Vec::new(),
+                not: Vec::new(),
                 xor: Vec::new(),
                 and: Vec::new(),
                 or: Vec::new(),
                 add: Vec::new(),
                 subtract: Vec::new(),
+                multiply: Vec::new(),
+                divide: Vec::new(),
+                modulus: Vec::new(),
                 store_global: Vec::new(),
+                get_global: Vec::new(),
                 get_property: Vec::new(),
+                delete: Vec::new(),
             },
             array: String::new(),
             current_index: 0,
@@ -75,79 +84,6 @@ impl OpcodeVisitor {
 }
 
 impl Visit for OpcodeVisitor {
-    fn visit_function(&mut self, node: &Function) {
-        if node.params.len() != 4 {
-            let mut u = GetType::Unknown;
-            let mut r = GetType::Unknown;
-            let mut l = GetType::Unknown;
-
-            if let Some(body) = &node.body {
-                if body.stmts.len() != 2 {
-                    node.visit_children_with(self);
-                }
-
-                if let Stmt::Decl(var_decl) = &body.stmts[0] {
-                    if let Decl::Var(var_decl) = &*var_decl {
-                        if var_decl.decls.len() == 3 {
-                            for i in 0..2 {
-                                if let Some(init) = &var_decl.decls[i].init {
-                                    if let Expr::Call(call_expr) = &**init {
-                                        if let Callee::Expr(callee_expr) = &call_expr.callee {
-                                            if let Expr::Ident(ident) = &**callee_expr {
-                                                match ident.sym.as_ref() {
-                                                    "u" => {
-                                                        u = Self::determine_type(
-                                                            &call_expr.args[0].expr,
-                                                        )
-                                                    }
-                                                    "r" => {
-                                                        r = Self::determine_type(
-                                                            &call_expr.args[0].expr,
-                                                        )
-                                                    }
-                                                    "l" => {
-                                                        l = Self::determine_type(
-                                                            &call_expr.args[0].expr,
-                                                        )
-                                                    }
-                                                    _ => {}
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if u == GetType::E && r == GetType::E && l == GetType::Unknown {
-                    if let Stmt::Expr(expr_stmt) = &body.stmts[1] {
-                        if let Expr::Assign(assign_expr) = &*expr_stmt.expr {
-                            if let AssignTarget::Simple(SimpleAssignTarget::Member(member_expr)) =
-                                &assign_expr.left
-                            {
-                                if let MemberProp::Computed(computed) = &member_expr.prop {
-                                    if let Expr::Ident(ident) = &*member_expr.obj {
-                                        if ident.sym == *"u" {
-                                            self.opcodes.store_global.push(Opcode {
-                                                index: self.current_index,
-                                                left: u,
-                                                right: r,
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        node.visit_children_with(self);
-    }
-
     fn visit_var_declarator(&mut self, var_declarator: &VarDeclarator) {
         if let Some(init) = &var_declarator.init {
             if let Expr::Array(array_lit) = &**init {
@@ -161,6 +97,7 @@ impl Visit for OpcodeVisitor {
                             .for_each(|(index, elem)| {
                                 if let Some(expr) = elem {
                                     self.current_index = index;
+
                                     expr.visit_with(self);
                                 }
                             });
@@ -175,6 +112,24 @@ impl Visit for OpcodeVisitor {
             if let Expr::Ident(ident) = &**callee_expr {
                 if ident.sym == "a" {
                     for arg in &call_expr.args {
+                        if let Expr::Unary(unary_expr) = &*arg.expr {
+                            if unary_expr.op == UnaryOp::Tilde {
+                                let arg_type = Self::determine_type(&unary_expr.arg);
+                                self.opcodes.not.push(Opcode {
+                                    index: self.current_index,
+                                    left: arg_type,
+                                    right: GetType::Unknown,
+                                });
+                            } else if unary_expr.op == UnaryOp::Delete {
+                                let arg_type = Self::determine_type(&unary_expr.arg);
+                                self.opcodes.delete.push(Opcode {
+                                    index: self.current_index,
+                                    left: arg_type,
+                                    right: GetType::Unknown,
+                                });
+                            }
+                        }
+
                         if let Expr::Bin(bin_expr) = &*arg.expr {
                             let op_vec = match bin_expr.op {
                                 BinaryOp::RShift => &mut self.opcodes.r_shift,
@@ -184,6 +139,9 @@ impl Visit for OpcodeVisitor {
                                 BinaryOp::BitOr => &mut self.opcodes.or,
                                 BinaryOp::Add => &mut self.opcodes.add,
                                 BinaryOp::Sub => &mut self.opcodes.subtract,
+                                BinaryOp::Mul => &mut self.opcodes.multiply,
+                                BinaryOp::Div => &mut self.opcodes.divide,
+                                BinaryOp::Mod => &mut self.opcodes.modulus,
                                 _ => continue,
                             };
 
@@ -200,6 +158,16 @@ impl Visit for OpcodeVisitor {
                                 let obj_type = Self::determine_type(&member_expr.obj);
                                 let prop_type = Self::determine_type(&computed.expr);
 
+                                if member_expr.obj.is_member() {
+                                    self.opcodes.get_global.push(Opcode {
+                                        index: self.current_index,
+                                        left: GetType::Unknown,
+                                        right: GetType::E,
+                                    });
+
+                                    return;
+                                }
+
                                 self.opcodes.get_property.push(Opcode {
                                     index: self.current_index,
                                     left: obj_type,
@@ -212,5 +180,37 @@ impl Visit for OpcodeVisitor {
             }
         }
         call_expr.visit_children_with(self);
+    }
+
+    fn visit_assign_expr(&mut self, assign_expr: &AssignExpr) {
+        let mut opcode = Opcode {
+            index: self.current_index,
+            left: GetType::Unknown,
+            right: GetType::Unknown,
+        };
+
+        if let Some(simple_expr) = assign_expr.left.as_simple() {
+            if let Some(member_expr) = simple_expr.as_member() {
+                if let MemberProp::Computed(computed) = &member_expr.prop {
+                    if let Expr::Ident(ident) = &*computed.expr {
+                        if ident.sym == "u" {
+                            opcode.left = GetType::E;
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Expr::Ident(ident) = &*assign_expr.right {
+            if ident.sym == "r" {
+                opcode.right = GetType::E;
+            }
+        }
+
+        if opcode.left == GetType::E && opcode.right == GetType::E {
+            self.opcodes.store_global.push(opcode);
+        }
+
+        assign_expr.visit_children_with(self);
     }
 }
