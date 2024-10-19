@@ -1,12 +1,24 @@
 use super::visitors::opcodes::GetType;
 
+use lazy_static::lazy_static;
+
 const CHARSET: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ValueType {
     INDEX,
     LITERAL,
     UNKNOWN,
+}
+
+lazy_static! {
+    static ref CHARSET_INDEX: [usize; 256] = {
+        let mut arr = [62; 256];
+        for (i, &c) in CHARSET.as_bytes().iter().enumerate() {
+            arr[c as usize] = i;
+        }
+        arr
+    };
 }
 
 #[derive(Debug, Clone)]
@@ -16,21 +28,21 @@ pub struct Value {
 }
 
 pub fn get_vm_bytes(instructions: &str) -> Vec<i64> {
-    let chars = instructions.chars().collect::<Vec<char>>();
-    let mut bytes = Vec::new();
+    let bytes = instructions.as_bytes();
+    let mut result = Vec::with_capacity(instructions.len() / 2);
 
     let mut m = 0;
-    while m < chars.len() {
+    while m < bytes.len() {
         let mut h = 0;
         let mut l = 1;
 
         loop {
-            let x = CHARSET.find(chars[m]).unwrap_or(0) as i64;
+            let x = CHARSET_INDEX[bytes[m] as usize] as i64;
             m += 1;
 
             h += l * (x % 50 as i64);
             if x < 50 as i64 {
-                bytes.push(h as i64);
+                result.push(h as i64);
                 break;
             }
 
@@ -39,7 +51,7 @@ pub fn get_vm_bytes(instructions: &str) -> Vec<i64> {
         }
     }
 
-    bytes
+    result
 }
 
 fn decode_string(encoded: &[i64], index: &mut usize) -> String {

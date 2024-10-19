@@ -1,6 +1,8 @@
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitWith};
 
+use rustc_hash::FxHashMap;
+
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum GetType {
     E,
@@ -10,28 +12,27 @@ pub enum GetType {
 
 #[derive(PartialEq, Debug)]
 pub struct Opcode {
-    pub index: usize,
     pub left: GetType,
     pub right: GetType,
 }
 
 #[derive(Debug)]
 pub struct Opcodes {
-    pub r_shift: Vec<Opcode>,
-    pub l_shift: Vec<Opcode>,
-    pub not: Vec<Opcode>,
-    pub xor: Vec<Opcode>,
-    pub and: Vec<Opcode>,
-    pub or: Vec<Opcode>,
-    pub add: Vec<Opcode>,
-    pub subtract: Vec<Opcode>,
-    pub multiply: Vec<Opcode>,
-    pub divide: Vec<Opcode>,
-    pub modulus: Vec<Opcode>,
-    pub store_global: Vec<Opcode>,
-    pub get_global: Vec<Opcode>,
-    pub get_property: Vec<Opcode>,
-    pub delete: Vec<Opcode>,
+    pub r_shift: FxHashMap<usize, Opcode>,
+    pub l_shift: FxHashMap<usize, Opcode>,
+    pub not: FxHashMap<usize, Opcode>,
+    pub xor: FxHashMap<usize, Opcode>,
+    pub and: FxHashMap<usize, Opcode>,
+    pub or: FxHashMap<usize, Opcode>,
+    pub add: FxHashMap<usize, Opcode>,
+    pub subtract: FxHashMap<usize, Opcode>,
+    pub multiply: FxHashMap<usize, Opcode>,
+    pub divide: FxHashMap<usize, Opcode>,
+    pub modulus: FxHashMap<usize, Opcode>,
+    pub store_global: FxHashMap<usize, Opcode>,
+    pub get_global: FxHashMap<usize, Opcode>,
+    pub get_property: FxHashMap<usize, Opcode>,
+    pub delete: FxHashMap<usize, Opcode>,
 }
 
 pub struct OpcodeVisitor {
@@ -61,21 +62,21 @@ impl OpcodeVisitor {
     pub fn new() -> Self {
         Self {
             opcodes: Opcodes {
-                r_shift: Vec::new(),
-                l_shift: Vec::new(),
-                not: Vec::new(),
-                xor: Vec::new(),
-                and: Vec::new(),
-                or: Vec::new(),
-                add: Vec::new(),
-                subtract: Vec::new(),
-                multiply: Vec::new(),
-                divide: Vec::new(),
-                modulus: Vec::new(),
-                store_global: Vec::new(),
-                get_global: Vec::new(),
-                get_property: Vec::new(),
-                delete: Vec::new(),
+                r_shift: FxHashMap::default(),
+                l_shift: FxHashMap::default(),
+                not: FxHashMap::default(),
+                xor: FxHashMap::default(),
+                and: FxHashMap::default(),
+                or: FxHashMap::default(),
+                add: FxHashMap::default(),
+                subtract: FxHashMap::default(),
+                multiply: FxHashMap::default(),
+                divide: FxHashMap::default(),
+                modulus: FxHashMap::default(),
+                store_global: FxHashMap::default(),
+                get_global: FxHashMap::default(),
+                get_property: FxHashMap::default(),
+                delete: FxHashMap::default(),
             },
             array: String::new(),
             current_index: 0,
@@ -115,18 +116,22 @@ impl Visit for OpcodeVisitor {
                         if let Expr::Unary(unary_expr) = &*arg.expr {
                             if unary_expr.op == UnaryOp::Tilde {
                                 let arg_type = Self::determine_type(&unary_expr.arg);
-                                self.opcodes.not.push(Opcode {
-                                    index: self.current_index,
-                                    left: arg_type,
-                                    right: GetType::Unknown,
-                                });
+                                self.opcodes.not.insert(
+                                    self.current_index,
+                                    Opcode {
+                                        left: arg_type,
+                                        right: GetType::Unknown,
+                                    },
+                                );
                             } else if unary_expr.op == UnaryOp::Delete {
                                 let arg_type = Self::determine_type(&unary_expr.arg);
-                                self.opcodes.delete.push(Opcode {
-                                    index: self.current_index,
-                                    left: arg_type,
-                                    right: GetType::Unknown,
-                                });
+                                self.opcodes.delete.insert(
+                                    self.current_index,
+                                    Opcode {
+                                        left: arg_type,
+                                        right: GetType::Unknown,
+                                    },
+                                );
                             }
                         }
 
@@ -148,31 +153,37 @@ impl Visit for OpcodeVisitor {
                             let left_type = Self::determine_type(&bin_expr.left);
                             let right_type = Self::determine_type(&bin_expr.right);
 
-                            op_vec.push(Opcode {
-                                index: self.current_index,
-                                left: left_type,
-                                right: right_type,
-                            });
+                            op_vec.insert(
+                                self.current_index,
+                                Opcode {
+                                    left: left_type,
+                                    right: right_type,
+                                },
+                            );
                         } else if let Expr::Member(member_expr) = &*arg.expr {
                             if let MemberProp::Computed(computed) = &member_expr.prop {
                                 let obj_type = Self::determine_type(&member_expr.obj);
                                 let prop_type = Self::determine_type(&computed.expr);
 
                                 if member_expr.obj.is_member() {
-                                    self.opcodes.get_global.push(Opcode {
-                                        index: self.current_index,
-                                        left: GetType::Unknown,
-                                        right: GetType::E,
-                                    });
+                                    self.opcodes.get_global.insert(
+                                        self.current_index,
+                                        Opcode {
+                                            left: GetType::Unknown,
+                                            right: GetType::E,
+                                        },
+                                    );
 
                                     return;
                                 }
 
-                                self.opcodes.get_property.push(Opcode {
-                                    index: self.current_index,
-                                    left: obj_type,
-                                    right: prop_type,
-                                });
+                                self.opcodes.get_property.insert(
+                                    self.current_index,
+                                    Opcode {
+                                        left: obj_type,
+                                        right: prop_type,
+                                    },
+                                );
                             }
                         }
                     }
@@ -184,7 +195,6 @@ impl Visit for OpcodeVisitor {
 
     fn visit_assign_expr(&mut self, assign_expr: &AssignExpr) {
         let mut opcode = Opcode {
-            index: self.current_index,
             left: GetType::Unknown,
             right: GetType::Unknown,
         };
@@ -208,7 +218,7 @@ impl Visit for OpcodeVisitor {
         }
 
         if opcode.left == GetType::E && opcode.right == GetType::E {
-            self.opcodes.store_global.push(opcode);
+            self.opcodes.store_global.insert(self.current_index, opcode);
         }
 
         assign_expr.visit_children_with(self);

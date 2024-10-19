@@ -1,22 +1,21 @@
 use super::memory::Memory;
 use super::parser::find_list;
-use super::utils::get_value;
+use super::utils::{get_value, ValueType};
 use super::visitors::opcodes::{GetType, Opcode, Opcodes};
 use super::visitors::values::Values;
+use rustc_hash::FxHashMap;
 
 fn process_binary_operation<F>(
     op_name: &str,
     memory: &mut Memory,
     drained_bytes: &[i64],
     i: usize,
-    opcodes: &[Opcode],
+    opcodes: &FxHashMap<usize, Opcode>,
     operation: F,
 ) where
     F: Fn(i64, i64) -> i64,
 {
-    let opcode = opcodes
-        .iter()
-        .find(|opcode| opcode.index == drained_bytes[i] as usize);
+    let opcode = opcodes.get(&(drained_bytes[i] as usize));
 
     let opcode = match opcode {
         Some(opcode) => opcode,
@@ -30,12 +29,12 @@ fn process_binary_operation<F>(
     let mut y = get_value(opcode.right, drained_bytes[i + 2]);
     let index = get_value(GetType::L, drained_bytes[i + 3]);
 
-    x = memory.get_value(x);
-    y = memory.get_value(y);
+    x = memory.get_value(x, false);
+    y = memory.get_value(y, false);
 
     let result = operation(x.value, y.value);
 
-    memory.set_value(result, index.value as usize);
+    memory.set_value(result, index.value as usize, false);
 
     println!(
         "{}: {:?} {:?} {} {:?} = {:?}; save: {:?}",
@@ -50,124 +49,108 @@ pub fn get_key(
     values: Values,
 ) -> Vec<u8> {
     let mut list = find_list(decoded.clone());
-    list.drain(0..2);
-
-    let mut memory = Memory::new();
-
-    let mut key = Vec::new();
+    list.drain(0..1);
 
     let decoded_chars = decoded.chars().collect::<Vec<char>>();
-
     let mut start_looking = false;
-
     let mut last_string = String::new();
+    let mut memory = Memory::new();
+    let mut skip = 0;
+    let mut key = Vec::new();
 
     for i in 0..drained_bytes.len() {
+        if skip > 0 {
+            skip -= 1;
+            continue;
+        }
+
         let byte = drained_bytes[i];
         match byte {
-            b if opcodes
-                .get_property
-                .iter()
-                .any(|opcode| opcode.index == b as usize) =>
-            {
-                let opcode = opcodes
-                    .get_property
-                    .iter()
-                    .find(|opcode| opcode.index == b as usize)
-                    .unwrap();
+            b if opcodes.get_property.contains_key(&(b as usize)) => {
+                let opcode = opcodes.get_property.get(&(b as usize)).unwrap();
 
                 if drained_bytes[i + 2] == values.get_list[0] as i64 {
-                    let z = get_value(opcode.left, drained_bytes[i + 1]);
                     let x = drained_bytes[i + 3] as usize;
                     let y = drained_bytes[i + 4] as usize;
+                    let z = get_value(opcode.left, drained_bytes[i + 1]);
 
-                    let mut string = String::new();
                     if x + y <= decoded_chars.len() {
-                        string = decoded_chars[y..(x + y)].iter().collect();
-                        if string == "slice" {
-                            list.pop();
-                        }
+                        let string: String = decoded_chars[y..(x + y)].iter().collect();
 
                         if string == "length" && last_string == "slice" {
                             start_looking = true;
 
-                            let index = get_value(GetType::L, drained_bytes[i + 5]);
-                            memory.set_list(list.clone(), z.value as usize, index.value as usize);
-                        }
-
-                        if string == "fromCharCode" && start_looking {
                             list.pop();
+                            memory.set_list(list.clone(), z.value as usize, false);
 
                             let index = get_value(GetType::L, drained_bytes[i + 5]);
-                            memory.set_list(list.clone(), z.value as usize, index.value as usize);
+                            memory.set_value(list.len() as i64, index.value as usize, false);
                         }
 
                         last_string = string.clone();
                     }
 
-                    if start_looking && string != "" {
-                        println!(
-                            "GET_PROPERTY: {:?} {:?}[{:?}], save: {:?}",
-                            i,
-                            z,
-                            string,
-                            get_value(GetType::L, drained_bytes[i + 5])
-                        );
-                    }
+                    skip = 5;
                 } else if start_looking {
                     let x = get_value(opcode.left, drained_bytes[i + 1]);
                     let index = get_value(GetType::L, drained_bytes[i + 2]);
 
-                    if memory.get_value(x.clone()).value == (list.len() - 1) as i64 {
-                        memory.set_value(list[list.len() - 1], index.value as usize);
+                    if memory.get_value(x.clone(), false).value == (list.len() - 1) as i64 {
+                        memory.set_value(list[list.len() - 1], index.value as usize, false);
                     }
+
+                    skip = 2;
                 }
             }
 
-            b if opcodes
-                .store_global
-                .iter()
-                .any(|opcode| opcode.index == b as usize)
-                && start_looking =>
-            {
-                let opcode = opcodes
-                    .store_global
-                    .iter()
-                    .find(|opcode| opcode.index == b as usize)
-                    .unwrap();
+            b if opcodes.store_global.contains_key(&(b as usize)) && start_looking => {
+                let opcode = opcodes.store_global.get(&(b as usize)).unwrap();
 
-                let x = get_value(opcode.left, drained_bytes[i + 1]);
-                let y = get_value(opcode.right, drained_bytes[i + 3]);
+                let mut z = 0;
+                loop {
+                    z += 1;
 
-                let value = memory.get_value(y.clone());
-                memory.set_global_value(value.value, x.value as usize);
+                    let x = get_value(opcode.left, drained_bytes[z]);
+                    if x.value_type == ValueType::UNKNOWN {
+                        continue;
+                    }
+
+                    let y = get_value(opcode.right, drained_bytes[z + 1]);
+
+                    let value = memory.get_value(y.clone(), false);
+                    println!("store_global: {:?} {:?} {:?}", x, y, value);
+                    memory.set_value(value.value, x.value as usize, true);
+
+                    break;
+                }
+
+                skip = z * 2;
             }
 
-            b if opcodes
-                .get_global
-                .iter()
-                .any(|opcode| opcode.index == b as usize)
-                && start_looking =>
-            {
-                let opcode = opcodes
-                    .get_global
-                    .iter()
-                    .find(|opcode| opcode.index == b as usize)
-                    .unwrap();
+            b if opcodes.get_global.contains_key(&(b as usize)) && start_looking => {
+                let opcode = opcodes.get_global.get(&(b as usize)).unwrap();
 
-                let x = get_value(opcode.right, drained_bytes[i + 1]);
-                let y = get_value(GetType::L, drained_bytes[i + 2]);
+                let mut z = 0;
+                loop {
+                    z += 1;
 
-                let value = memory.get_global_value(x.clone());
-                memory.set_value(value.value, y.value as usize);
+                    let x = get_value(opcode.right, drained_bytes[z]);
+                    if x.value_type == ValueType::UNKNOWN {
+                        continue;
+                    }
+
+                    let y = get_value(GetType::L, drained_bytes[z + 1]);
+
+                    let value = memory.get_value(x.clone(), true);
+                    memory.set_value(value.value, y.value as usize, false);
+
+                    break;
+                }
+
+                skip = z * 2;
             }
 
-            b if opcodes
-                .r_shift
-                .iter()
-                .any(|opcode| opcode.index == b as usize)
-                && start_looking =>
-            {
+            b if opcodes.r_shift.contains_key(&(b as usize)) && start_looking => {
                 process_binary_operation(
                     "R_SHIFT",
                     &mut memory,
@@ -176,14 +159,11 @@ pub fn get_key(
                     &opcodes.r_shift,
                     |x, y| x >> y,
                 );
+
+                skip = 3;
             }
 
-            b if opcodes
-                .l_shift
-                .iter()
-                .any(|opcode| opcode.index == b as usize)
-                && start_looking =>
-            {
+            b if opcodes.l_shift.contains_key(&(b as usize)) && start_looking => {
                 process_binary_operation(
                     "L_SHIFT",
                     &mut memory,
@@ -192,9 +172,11 @@ pub fn get_key(
                     &opcodes.l_shift,
                     |x, y| x << y,
                 );
+
+                skip = 3;
             }
 
-            b if opcodes.add.iter().any(|opcode| opcode.index == b as usize) && start_looking => {
+            b if opcodes.add.contains_key(&(b as usize)) && start_looking => {
                 process_binary_operation(
                     "ADD",
                     &mut memory,
@@ -203,14 +185,11 @@ pub fn get_key(
                     &opcodes.add,
                     |x, y| x + y,
                 );
+
+                skip = 3;
             }
 
-            b if opcodes
-                .subtract
-                .iter()
-                .any(|opcode| opcode.index == b as usize)
-                && start_looking =>
-            {
+            b if opcodes.subtract.contains_key(&(b as usize)) && start_looking => {
                 process_binary_operation(
                     "SUB",
                     &mut memory,
@@ -219,9 +198,11 @@ pub fn get_key(
                     &opcodes.subtract,
                     |x, y| x - y,
                 );
+
+                skip = 3;
             }
 
-            b if opcodes.xor.iter().any(|opcode| opcode.index == b as usize) && start_looking => {
+            b if opcodes.xor.contains_key(&(b as usize)) && start_looking => {
                 process_binary_operation(
                     "XOR",
                     &mut memory,
@@ -230,9 +211,11 @@ pub fn get_key(
                     &opcodes.xor,
                     |x, y| x ^ y,
                 );
+
+                skip = 3;
             }
 
-            b if opcodes.and.iter().any(|opcode| opcode.index == b as usize) && start_looking => {
+            b if opcodes.and.contains_key(&(b as usize)) && start_looking => {
                 process_binary_operation(
                     "AND",
                     &mut memory,
@@ -241,9 +224,11 @@ pub fn get_key(
                     &opcodes.and,
                     |x, y| x & y,
                 );
+
+                skip = 3;
             }
 
-            b if opcodes.or.iter().any(|opcode| opcode.index == b as usize) && start_looking => {
+            b if opcodes.or.contains_key(&(b as usize)) && start_looking => {
                 process_binary_operation(
                     "OR",
                     &mut memory,
@@ -252,14 +237,11 @@ pub fn get_key(
                     &opcodes.or,
                     |x, y| x | y,
                 );
+
+                skip = 3;
             }
 
-            b if opcodes
-                .divide
-                .iter()
-                .any(|opcode| opcode.index == b as usize)
-                && start_looking =>
-            {
+            b if opcodes.divide.contains_key(&(b as usize)) && start_looking => {
                 process_binary_operation(
                     "DIV",
                     &mut memory,
@@ -268,14 +250,11 @@ pub fn get_key(
                     &opcodes.divide,
                     |x, y| x / y,
                 );
+
+                skip = 3;
             }
 
-            b if opcodes
-                .modulus
-                .iter()
-                .any(|opcode| opcode.index == b as usize)
-                && start_looking =>
-            {
+            b if opcodes.modulus.contains_key(&(b as usize)) && start_looking => {
                 process_binary_operation(
                     "MOD",
                     &mut memory,
@@ -284,22 +263,22 @@ pub fn get_key(
                     &opcodes.modulus,
                     |x, y| x % y,
                 );
+
+                skip = 3;
             }
 
-            b if opcodes.not.iter().any(|opcode| opcode.index == b as usize) && start_looking => {
-                let opcode = opcodes
-                    .not
-                    .iter()
-                    .find(|opcode| opcode.index == b as usize)
-                    .unwrap();
+            b if opcodes.not.contains_key(&(b as usize)) && start_looking => {
+                let opcode = opcodes.not.get(&(b as usize)).unwrap();
 
                 let x = get_value(opcode.left, drained_bytes[i + 1]);
                 let index = get_value(GetType::L, drained_bytes[i + 2]);
 
                 let value = !x.value;
-                memory.set_value(value, index.value as usize);
+                memory.set_value(value, index.value as usize, false);
 
                 println!("NOT: {:?} {:?} NOT {:?}; save: {:?}", i, x, value, index);
+
+                skip = 2;
             }
 
             _ => {}

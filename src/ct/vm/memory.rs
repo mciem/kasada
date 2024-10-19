@@ -4,6 +4,7 @@ use super::utils::{Value, ValueType};
 pub enum MemoryType {
     LIST,
     LITERAL,
+    UNKNOWN,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -23,16 +24,16 @@ impl Memory {
         Memory {
             memory: vec![
                 MemoryValue {
-                    value: vec![0],
-                    value_type: MemoryType::LITERAL,
+                    value: vec![i64::MIN],
+                    value_type: MemoryType::UNKNOWN,
                 };
                 200
             ],
 
             global: vec![
                 MemoryValue {
-                    value: vec![0],
-                    value_type: MemoryType::LITERAL,
+                    value: vec![i64::MIN],
+                    value_type: MemoryType::UNKNOWN,
                 };
                 10000
             ],
@@ -49,49 +50,50 @@ impl Memory {
         false
     }
 
-    pub fn set_list(&mut self, list: Vec<i64>, index: usize, l_index: usize) {
-        self.memory[index] = MemoryValue {
+    pub fn set_list(&mut self, list: Vec<i64>, index: usize, global: bool) {
+        let memory = if global {
+            &mut self.global
+        } else {
+            &mut self.memory
+        };
+
+        memory[index] = MemoryValue {
             value: list.clone(),
             value_type: MemoryType::LIST,
         };
-
-        self.memory[l_index] = MemoryValue {
-            value: vec![list.len() as i64],
-            value_type: MemoryType::LITERAL,
-        };
     }
 
-    pub fn get_value(&self, x: Value) -> Value {
+    pub fn get_value(&self, x: Value, global: bool) -> Value {
+        let memory = if global { &self.global } else { &self.memory };
+
         match x.value_type {
-            ValueType::INDEX => Value {
-                value: self.memory[x.value as usize].value[0].clone(),
-                value_type: ValueType::LITERAL,
-            },
+            ValueType::INDEX => {
+                let value = memory[x.value as usize].value[0].clone();
+                if value == i64::MIN {
+                    Value {
+                        value: 0,
+                        value_type: ValueType::UNKNOWN,
+                    }
+                } else {
+                    Value {
+                        value: value.clone(),
+                        value_type: ValueType::LITERAL,
+                    }
+                }
+            }
             ValueType::LITERAL => x,
             _ => x,
         }
     }
 
-    pub fn set_value(&mut self, x: i64, index: usize) {
-        self.memory[index] = MemoryValue {
-            value: vec![x],
-            value_type: MemoryType::LITERAL,
+    pub fn set_value(&mut self, x: i64, index: usize, global: bool) {
+        let memory = if global {
+            &mut self.global
+        } else {
+            &mut self.memory
         };
-    }
 
-    pub fn get_global_value(&self, x: Value) -> Value {
-        match x.value_type {
-            ValueType::INDEX => Value {
-                value: self.global[x.value as usize].value[0].clone(),
-                value_type: ValueType::LITERAL,
-            },
-            ValueType::LITERAL => x,
-            _ => x,
-        }
-    }
-
-    pub fn set_global_value(&mut self, x: i64, index: usize) {
-        self.global[index] = MemoryValue {
+        memory[index] = MemoryValue {
             value: vec![x],
             value_type: MemoryType::LITERAL,
         };
