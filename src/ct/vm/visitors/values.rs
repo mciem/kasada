@@ -1,5 +1,7 @@
-use swc_ecma_ast::*;
-use swc_ecma_visit::Visit;
+use oxc_ast::ast::{
+    ArrayExpression, ArrayExpressionElement, Expression, StringLiteral, VariableDeclarator,
+};
+use oxc_ast::Visit;
 
 #[derive(Debug)]
 pub struct Values {
@@ -20,35 +22,32 @@ impl ValuesVisitor {
             },
         }
     }
+
+    fn process_array(&mut self, array_expr: &ArrayExpression<'_>) {
+        if array_expr.elements.len() == 6 {
+            for elem in &array_expr.elements {
+                if let ArrayExpressionElement::NumericLiteral(lit) = elem {
+                    self.values.get_list.push(lit.value as u8);
+                }
+            }
+        }
+    }
+
+    fn process_literal(&mut self, lit: &StringLiteral<'_>) {
+        let string = lit.to_string();
+        if string.len() > 10000 {
+            self.values.instructions = string;
+        }
+    }
 }
 
-impl Visit for ValuesVisitor {
-    fn visit_var_declarator(&mut self, var_declarator: &VarDeclarator) {
-        if let Some(init) = &var_declarator.init {
-            if let Expr::Array(array_lit) = &**init {
-                if array_lit.elems.len() == 6 {
-                    for elem in &array_lit.elems {
-                        if let Some(expr) = elem {
-                            let expr = &expr.expr;
-                            if let Expr::Lit(lit) = &**expr {
-                                match lit {
-                                    Lit::Num(num) => {
-                                        self.values.get_list.push(num.value as u8);
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
-                }
-            } else if let Expr::Lit(lit) = &**init {
-                if let Lit::Str(str_lit) = lit {
-                    let string = str_lit.value.to_string();
-
-                    if string.len() > 10000 {
-                        self.values.instructions = string;
-                    }
-                }
+impl<'a> Visit<'a> for ValuesVisitor {
+    fn visit_variable_declarator(&mut self, var_decl: &VariableDeclarator<'_>) {
+        if let Some(init) = &var_decl.init {
+            match &init {
+                Expression::ArrayExpression(array_expr) => self.process_array(array_expr),
+                Expression::StringLiteral(lit) => self.process_literal(lit),
+                _ => {}
             }
         }
     }
