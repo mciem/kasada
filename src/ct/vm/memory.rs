@@ -27,7 +27,7 @@ impl Memory {
                     value: vec![i64::MIN],
                     value_type: MemoryType::UNKNOWN,
                 };
-                200
+                25
             ],
 
             global: vec![

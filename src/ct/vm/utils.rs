@@ -1,3 +1,4 @@
+use super::memory::Memory;
 use super::visitors::opcodes::GetType;
 
 use lazy_static::lazy_static;
@@ -81,21 +82,39 @@ pub fn decode_vm_bytes(mut vm_bytes: Vec<i64>) -> (String, Vec<i64>) {
     (decoded, vm_bytes)
 }
 
-pub fn get_value(t: GetType, x: i64) -> Value {
-    if GetType::L == t || x & 1 != 1 {
-        Value {
+pub fn get_value(t: GetType, x: i64, memory: &mut Memory) -> Value {
+    match t {
+        GetType::L => Value {
             value: x >> 5,
             value_type: ValueType::INDEX,
+        },
+        GetType::E => {
+            if x & 1 == 1 {
+                Value {
+                    value: x >> 1,
+                    value_type: ValueType::LITERAL,
+                }
+            } else {
+                Value {
+                    value: x >> 5,
+                    value_type: ValueType::INDEX,
+                }
+            }
         }
-    } else if GetType::E == t {
-        Value {
-            value: x >> 1,
-            value_type: ValueType::LITERAL,
+        GetType::I => {
+            let index = Value {
+                value: x >> 5,
+                value_type: ValueType::INDEX,
+            };
+
+            Value {
+                value: memory.get_value(index, false).value,
+                value_type: ValueType::LITERAL,
+            }
         }
-    } else {
-        Value {
+        _ => Value {
             value: 0,
             value_type: ValueType::UNKNOWN,
-        }
+        },
     }
 }

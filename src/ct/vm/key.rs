@@ -19,15 +19,24 @@ fn process_binary_operation<F>(
 
     let opcode = match opcode {
         Some(opcode) => opcode,
-        None => panic!(
+        _ => panic!(
             "Opcode not found: {:?}, opcode: {:?}",
             drained_bytes[i], op_name
         ),
     };
 
-    let mut x = get_value(opcode.left, drained_bytes[i + 1]);
-    let mut y = get_value(opcode.right, drained_bytes[i + 2]);
-    let index = get_value(GetType::L, drained_bytes[i + 3]);
+    let mut x = get_value(opcode.left, drained_bytes[i + 1], memory);
+    let mut y = get_value(opcode.right, drained_bytes[i + 2], memory);
+    let index = get_value(GetType::L, drained_bytes[i + 3], memory);
+
+    if op_name == "XOR" {
+        println!(
+            "y : {:?}, byte : {:?}, type : {:?}",
+            y,
+            drained_bytes[i + 2],
+            opcode.right
+        );
+    }
 
     x = memory.get_value(x, false);
     y = memory.get_value(y, false);
@@ -49,7 +58,7 @@ pub fn get_key(
     values: Values,
 ) -> Vec<u8> {
     let mut list = find_list(decoded.clone());
-    list.drain(0..1);
+    list.drain(0..3);
 
     let decoded_chars = decoded.chars().collect::<Vec<char>>();
     let mut start_looking = false;
@@ -72,7 +81,7 @@ pub fn get_key(
                 if drained_bytes[i + 2] == values.get_list[0] as i64 {
                     let x = drained_bytes[i + 3] as usize;
                     let y = drained_bytes[i + 4] as usize;
-                    let z = get_value(opcode.left, drained_bytes[i + 1]);
+                    let z = get_value(opcode.left, drained_bytes[i + 1], &mut memory);
 
                     if x + y <= decoded_chars.len() {
                         let string: String = decoded_chars[y..(x + y)].iter().collect();
@@ -80,10 +89,9 @@ pub fn get_key(
                         if string == "length" && last_string == "slice" {
                             start_looking = true;
 
-                            list.pop();
                             memory.set_list(list.clone(), z.value as usize, false);
 
-                            let index = get_value(GetType::L, drained_bytes[i + 5]);
+                            let index = get_value(GetType::L, drained_bytes[i + 5], &mut memory);
                             memory.set_value(list.len() as i64, index.value as usize, false);
                         }
 
@@ -92,17 +100,28 @@ pub fn get_key(
 
                     skip = 5;
                 } else if start_looking {
-                    let x = get_value(opcode.left, drained_bytes[i + 1]);
-                    let index = get_value(GetType::L, drained_bytes[i + 2]);
+                    let x = get_value(opcode.left, drained_bytes[i + 1], &mut memory);
+                    let index = get_value(GetType::L, drained_bytes[i + 2], &mut memory);
 
                     if memory.get_value(x.clone(), false).value == (list.len() - 1) as i64 {
                         memory.set_value(list[list.len() - 1], index.value as usize, false);
+                        list.pop();
                     }
 
                     skip = 2;
                 }
             }
 
+            b if opcodes.get.contains_key(&(b as usize)) && start_looking => {
+                let opcode = opcodes.get.get(&(b as usize)).unwrap();
+
+                let x = get_value(opcode.left, drained_bytes[i + 1], &mut memory);
+                let index = get_value(GetType::L, drained_bytes[i + 2], &mut memory);
+
+                memory.set_value(x.value, index.value as usize, false);
+            }
+
+            /*
             b if opcodes.store_global.contains_key(&(b as usize)) && start_looking => {
                 let opcode = opcodes.store_global.get(&(b as usize)).unwrap();
 
@@ -110,15 +129,23 @@ pub fn get_key(
                 loop {
                     z += 1;
 
-                    let x = get_value(opcode.left, drained_bytes[z]);
+                    let x = get_value(opcode.left, drained_bytes[z], &drained_bytes, &mut memory);
                     if x.value_type == ValueType::UNKNOWN {
                         continue;
                     }
 
-                    let y = get_value(opcode.right, drained_bytes[z + 1]);
+                    let y = get_value(
+                        opcode.right,
+                        drained_bytes[z + 1],
+                        &drained_bytes,
+                        &mut memory,
+                    );
 
                     let value = memory.get_value(y.clone(), false);
-                    println!("store_global: {:?} {:?} {:?}", x, y, value);
+                    println!(
+                        "store_global: {:?}, {:?}, {:?}, {:?}, {:?}",
+                        value.value, opcode.right, y, drained_bytes[z], x
+                    );
                     memory.set_value(value.value, x.value as usize, true);
 
                     break;
@@ -134,12 +161,12 @@ pub fn get_key(
                 loop {
                     z += 1;
 
-                    let x = get_value(opcode.right, drained_bytes[z]);
+                    let x = get_value(opcode.right, drained_bytes[z], &mut memory);
                     if x.value_type == ValueType::UNKNOWN {
                         continue;
                     }
 
-                    let y = get_value(GetType::L, drained_bytes[z + 1]);
+                    let y = get_value(GetType::L, drained_bytes[z + 1], &mut memory);
 
                     let value = memory.get_value(x.clone(), true);
                     memory.set_value(value.value, y.value as usize, false);
@@ -149,7 +176,7 @@ pub fn get_key(
 
                 skip = z * 2;
             }
-
+            */
             b if opcodes.r_shift.contains_key(&(b as usize)) && start_looking => {
                 process_binary_operation(
                     "R_SHIFT",
@@ -270,8 +297,10 @@ pub fn get_key(
             b if opcodes.not.contains_key(&(b as usize)) && start_looking => {
                 let opcode = opcodes.not.get(&(b as usize)).unwrap();
 
-                let x = get_value(opcode.left, drained_bytes[i + 1]);
-                let index = get_value(GetType::L, drained_bytes[i + 2]);
+                let mut x = get_value(opcode.left, drained_bytes[i + 1], &mut memory);
+                let index = get_value(GetType::L, drained_bytes[i + 2], &mut memory);
+
+                x = memory.get_value(x, false);
 
                 let value = !x.value;
                 memory.set_value(value, index.value as usize, false);

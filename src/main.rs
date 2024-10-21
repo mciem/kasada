@@ -990,13 +990,15 @@ fn main() {
         "#,
     );
 
-    //println!("{:?}, {:?}", opcodes, values);
-
     let bytes = get_vm_bytes(&values.instructions);
     let (decoded, drained_bytes) = decode_vm_bytes(bytes);
+
+    println!("{:?}", decoded);
 
     let took = std::time::Instant::now().duration_since(start);
     println!("Took {:?}", took);
 
-    //let _ = get_key(drained_bytes, decoded, opcodes, values);
+    println!("{:?}", opcodes.subtract);
+
+    let _ = get_key(drained_bytes, decoded, opcodes, values);
 }

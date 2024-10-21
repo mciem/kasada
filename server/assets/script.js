@@ -11,7 +11,7 @@ let logData = "";
 function log(opcode, ...args) {
   try {
     if (LOG) {
-      if (opcode == "SUB") {
+      if (opcode == "AAAA") {
         console.log();
       }
 
@@ -414,6 +414,8 @@ function downloadLog() {
       var u = e(n),
         r = e(n),
         l = _(n);
+
+      log("AAAA", [u, r]);
       l.H[u] = r;
     },
     function (n, e, a, _, u, r) {
