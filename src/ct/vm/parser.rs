@@ -1,7 +1,7 @@
-use swc_common::sync::Lrc;
-use swc_common::{FileName, SourceMap};
-use swc_ecma_parser::{EsSyntax, Parser, StringInput, Syntax};
-use swc_ecma_visit::VisitWith;
+use oxc_allocator::Allocator;
+use oxc_ast::Visit;
+use oxc_parser::Parser;
+use oxc_span::SourceType;
 
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -27,31 +27,22 @@ pub fn find_list(string: String) -> Vec<i64> {
 }
 
 pub fn parse(js_code: &str) -> (Opcodes, Values) {
-    let cm: Lrc<SourceMap> = Default::default();
+    let allocator = Allocator::default();
 
-    let fm = cm.new_source_file(
-        Lrc::new(FileName::Custom("input.js".into())),
-        js_code.into(),
-    );
+    let ret = Parser::new(
+        &allocator,
+        js_code,
+        SourceType::from_path("aaa.js").unwrap(),
+    )
+    .parse();
 
-    let lexer = swc_ecma_parser::lexer::Lexer::new(
-        Syntax::Es(EsSyntax {
-            jsx: true,
-            ..Default::default()
-        }),
-        Default::default(),
-        StringInput::from(&*fm),
-        None,
-    );
+    let program = ret.program;
 
-    let mut parser = Parser::new_from(lexer);
-    let module = parser.parse_module().expect("Failed to parse module");
+    let mut opcode = OpcodeVisitor::new();
+    opcode.visit_program(&program);
 
-    let mut opcode_visitor = OpcodeVisitor::new();
-    module.visit_with(&mut opcode_visitor);
+    let mut value = ValuesVisitor::new();
+    value.visit_program(&program);
 
-    let mut values_visitor = ValuesVisitor::new();
-    module.visit_with(&mut values_visitor);
-
-    (opcode_visitor.opcodes, values_visitor.values)
+    (opcode.opcodes, value.values)
 }
