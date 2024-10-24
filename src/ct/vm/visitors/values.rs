@@ -35,7 +35,7 @@ impl ValuesVisitor {
 
     fn process_literal(&mut self, lit: &StringLiteral<'_>) {
         let string = lit.to_string();
-        if string.len() > 10000 {
+        if string.len() > 1000 {
             self.values.instructions = string;
         }
     }

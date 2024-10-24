@@ -4,7 +4,7 @@ use kasada::ct::vm::utils::{decode_vm_bytes, get_vm_bytes};
 
 fn main() {
     let start = std::time::Instant::now();
-    let (_, values) = parse(
+    let (opcodes, values) = parse(
         r#"
         KPSDK.scriptStart = KPSDK.now();
         ("use strict");
@@ -998,12 +998,11 @@ fn main() {
     let start2 = std::time::Instant::now();
 
     let bytes = get_vm_bytes(&values.instructions);
-    let (_, _) = decode_vm_bytes(bytes);
-
+    let (decoded, drained_bytes) = decode_vm_bytes(bytes);
     println!(
         "Decoder took: {:?}",
         std::time::Instant::now().duration_since(start2)
     );
 
-    //let _ = get_key(drained_bytes, decoded, opcodes, values);
+    let _ = get_key(drained_bytes, decoded, opcodes, values);
 }

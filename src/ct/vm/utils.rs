@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 
 const CHARSET: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub enum ValueType {
     INDEX,
     LITERAL,
@@ -22,7 +22,7 @@ lazy_static! {
     };
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Value {
     pub value: i64,
     pub value_type: ValueType,
@@ -108,7 +108,7 @@ pub fn get_value(t: GetType, x: i64, memory: &mut Memory) -> Value {
             };
 
             Value {
-                value: memory.get_value(index, false).value,
+                value: memory.get_value(index, false)[0].value,
                 value_type: ValueType::LITERAL,
             }
         }

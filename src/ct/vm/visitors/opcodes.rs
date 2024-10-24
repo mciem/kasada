@@ -33,6 +33,8 @@ pub struct Opcodes {
     pub modulus: FxHashMap<usize, Opcode>,
     pub get: FxHashMap<usize, Opcode>,
     pub get_property: FxHashMap<usize, Opcode>,
+    pub store_global: FxHashMap<usize, Opcode>,
+    pub get_global: FxHashMap<usize, Opcode>,
     pub delete: FxHashMap<usize, Opcode>,
 }
 
@@ -72,6 +74,8 @@ impl OpcodeVisitor {
                 modulus: FxHashMap::default(),
                 get: FxHashMap::default(),
                 get_property: FxHashMap::default(),
+                store_global: FxHashMap::default(),
+                get_global: FxHashMap::default(),
                 delete: FxHashMap::default(),
             },
             array: String::new(),
@@ -83,8 +87,6 @@ impl OpcodeVisitor {
 impl<'a> Visit<'a> for OpcodeVisitor {
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         if let Some(init) = &it.init {
-            self.visit_expression(init);
-
             if let Expression::ArrayExpression(array_lit) = &*init {
                 if array_lit.elements.len() == 96 {
                     if let Some(ident) = &it.id.get_identifier() {
@@ -103,8 +105,6 @@ impl<'a> Visit<'a> for OpcodeVisitor {
                 }
             }
         }
-
-        walk::walk_variable_declarator(self, it);
     }
 
     fn visit_function(&mut self, it: &Function<'a>, _: oxc_semantic::ScopeFlags) {
@@ -189,14 +189,24 @@ impl<'a> Visit<'a> for OpcodeVisitor {
                             let obj_type = Self::determine_type(&computed.object);
                             let prop_type = Self::determine_type(&computed.expression);
 
-                            if obj_type != GetType::Unknown {
-                                self.opcodes.get_property.insert(
+                            if computed.object.is_member_expression() {
+                                self.opcodes.get_global.insert(
                                     self.current_index,
                                     Opcode {
-                                        left: obj_type,
-                                        right: prop_type,
+                                        left: GetType::Unknown,
+                                        right: GetType::E,
                                     },
                                 );
+                            } else {
+                                if obj_type != GetType::Unknown && prop_type != GetType::Unknown {
+                                    self.opcodes.get_property.insert(
+                                        self.current_index,
+                                        Opcode {
+                                            left: obj_type,
+                                            right: prop_type,
+                                        },
+                                    );
+                                }
                             }
                         }
                         Argument::CallExpression(call_expr) => {
@@ -218,5 +228,32 @@ impl<'a> Visit<'a> for OpcodeVisitor {
             }
         }
         walk::walk_call_expression(self, it);
+    }
+
+    fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
+        let mut opcode = Opcode {
+            left: GetType::Unknown,
+            right: GetType::Unknown,
+        };
+
+        if let AssignmentTarget::ComputedMemberExpression(computed) = &it.left {
+            if let Expression::Identifier(ident) = &computed.expression {
+                if &*ident.name.as_str() == "u" {
+                    opcode.left = GetType::E;
+                }
+            }
+        }
+
+        if let Expression::Identifier(ident) = &it.right {
+            if &*ident.name.as_str() == "r" {
+                opcode.right = GetType::E;
+            }
+        }
+
+        if opcode.left == GetType::E && opcode.right == GetType::E {
+            self.opcodes.store_global.insert(self.current_index, opcode);
+        }
+
+        //walk::walk_assignment_expression(self, it);
     }
 }
