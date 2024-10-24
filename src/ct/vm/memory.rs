@@ -27,7 +27,7 @@ impl Memory {
                     value: vec![i64::MIN],
                     value_type: MemoryType::UNKNOWN,
                 };
-                25
+                100
             ],
 
             global: vec![
@@ -63,26 +63,39 @@ impl Memory {
         };
     }
 
-    pub fn get_value(&self, x: Value, global: bool) -> Value {
+    pub fn get_value(&self, x: Value, global: bool) -> Vec<Value> {
         let memory = if global { &self.global } else { &self.memory };
 
         match x.value_type {
             ValueType::INDEX => {
+                let element = memory[x.value as usize].clone();
+                if element.value_type == MemoryType::LIST {
+                    let mut result = vec![];
+                    for i in 0..element.value.len() {
+                        result.push(Value {
+                            value: element.value[i],
+                            value_type: ValueType::LITERAL,
+                        });
+                    }
+
+                    return result;
+                }
+
                 let value = memory[x.value as usize].value[0].clone();
                 if value == i64::MIN {
-                    Value {
+                    vec![Value {
                         value: 0,
                         value_type: ValueType::UNKNOWN,
-                    }
+                    }]
                 } else {
-                    Value {
+                    vec![Value {
                         value: value.clone(),
                         value_type: ValueType::LITERAL,
-                    }
+                    }]
                 }
             }
-            ValueType::LITERAL => x,
-            _ => x,
+            ValueType::LITERAL => vec![x],
+            _ => vec![x],
         }
     }
 

@@ -66,16 +66,24 @@ function log(opcode, ...args) {
   }
   var o = L();
   function s(r, e) {
-    if ((Array.isArray(e) && e[1] == 57492) || e === 31840) {
+    if ((Array.isArray(e) && e[1] == 57492) || e === 35958) {
       LOG = true;
     }
+
     r.Y[g(r)] = e;
   }
   var R = function (v, u, f, a) {
       var r = v[u[0]++];
       if (r & 1) return r >> 1;
       if (r === f[0]) {
-        if (a != null && a.a) return a.a(v[u[0]++], v[u[0]++]);
+        if (a != null && a.a) {
+          let res = a.a(v[u[0]++], v[u[0]++]);
+          if (res.slice(0, 2) == "[0") {
+            console.log();
+          }
+
+          return res;
+        }
         for (var t = "", M = v[u[0]++], h = 0; h < M; h++) {
           var l = v[u[0]++];
           t += String.fromCharCode((l & 4294967232) | ((l * 59) & 63));
@@ -175,6 +183,10 @@ function log(opcode, ...args) {
       let y = e(n);
       log("GET_PROPERTY", [x, y, x[y]]);
 
+      if (LOG) {
+        console.log();
+      }
+
       a(n, x[y]);
     },
     function (n, e) {
@@ -186,6 +198,10 @@ function log(opcode, ...args) {
     function (n, e, a, _) {
       for (var u = e(n), r = _(n); r; r = r.p)
         if (u in r.K) {
+          if (Array.isArray(r.K[u]) && r.K[u][1] == 57492) {
+            console.log();
+          }
+
           a(n, r.K[u]);
           return;
         }
@@ -209,6 +225,11 @@ function log(opcode, ...args) {
       var u = e(n),
         r = e(n),
         l = _(n);
+
+      if (Array.isArray(r) && r[1] == 57492) {
+        console.log();
+      }
+
       l.K[u] = r;
     },
     function (n, e, a, _, u, r) {
@@ -324,6 +345,9 @@ function log(opcode, ...args) {
     function (n, e, a, _) {
       for (var u = e(n), r = e(n), l = _(n); l; l = l.p)
         if (u in l.K) {
+          if (Array.isArray(r) && r[1] == 57492) {
+            console.log();
+          }
           l.K[u] = r;
           return;
         }
@@ -1110,6 +1134,9 @@ function log(opcode, ...args) {
     for (var e = [i, [f, I], t], n = [h, C, L, d, a, D]; ; ) {
       var b = S[t[r.Y[0]++]];
       try {
+        if (t[r.Y[0]] > 58950) {
+          console.log();
+        }
         var m = b(r, M, s, _, e, n);
         if (m === null) break;
       } catch (y) {
