@@ -1,9 +1,52 @@
-uhh
+<div align="center">
+  <h1 align="center">Kasada Reverse</h1>
+  <p align="center">
+    kasada reverse
+    <br />
+    <br />
+    <a href="https://github.com/mciem/kasada#-changelog">📜 ChangeLog</a>
+    ·
+    <a href="https://github.com/mciem/kasada/issues">⚠️ Report Bug</a>
+    ·
+    <a href="https://github.com/mciem/kasada/issues">💡 Request Feature</a>
+  </p>
+</div>
 
-my attempt on reversing kasada ( i kinda did it )
+---
 
-what do i have here?
-1. opcodes parser with oxc ultra fast
-2. some other shit
 
-super fast (<3ms)
+### ⚙️ Installation
+
+- Requires: `rust`
+
+---
+
+### 📝 Description
+
+My attempt at reversing kasada, not finished
+
+---
+
+### 🔥 Features
+
+- very fast, bcs its rust and oxc for parsing
+- parser
+- some other stuff...
+
+---
+
+### 🚀 Milestones
+
+- [X] Make Parser
+- [ ] Finish it
+
+---
+
+### 📜 ChangeLog
+
+```diff
+v1.0.0 ⋮ 04/02/2024
+! Initial Release (alpha version)
+```
+
+---
