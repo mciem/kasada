@@ -1,7 +1,7 @@
 <div align="center">
   <h1 align="center">Kasada Reverse</h1>
   <p align="center">
-    kasada reverse
+    kasada reverse ( not finished !!! )
     <br />
     <br />
     <a href="https://github.com/mciem/kasada#-changelog">📜 ChangeLog</a>
