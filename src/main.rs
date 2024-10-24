@@ -990,6 +990,11 @@ fn main() {
         "#,
     );
 
+<<<<<<< Updated upstream
+=======
+    println!("opcodes: {:?}, values: {:?}", opcodes, values);
+
+>>>>>>> Stashed changes
     println!(
         "Parser took: {:?}",
         std::time::Instant::now().duration_since(start)
