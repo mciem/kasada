@@ -16,8 +16,8 @@
 
 ### 📞 Contact
 
-- Discord: mciemmmmmmmmmm
-- Telegram: t.me/sddasdasdas
+- Discord: `mciemmmmmmmmmm`
+- Telegram: `t.me/sddasdasdas`
 
 ### ⚙️ Installation
 
