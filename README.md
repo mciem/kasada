@@ -14,6 +14,10 @@
 
 ---
 
+### 📞 Contact
+
+- Discord: mciemmmmmmmmmm
+- Telegram: t.me/sddasdasdas
 
 ### ⚙️ Installation
 
