@@ -1,58 +1,54 @@
-use super::memory::Memory;
-use super::visitors::opcodes::GetType;
+use unicode_segmentation::UnicodeSegmentation;
 
-use lazy_static::lazy_static;
-
-const CHARSET: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-
-#[derive(Debug, Clone, PartialEq, Copy)]
-pub enum ValueType {
-    INDEX,
-    LITERAL,
-    UNKNOWN,
-}
-
-lazy_static! {
-    static ref CHARSET_INDEX: [usize; 256] = {
-        let mut arr = [62; 256];
-        for (i, &c) in CHARSET.as_bytes().iter().enumerate() {
-            arr[c as usize] = i;
-        }
+pub fn get_vm_bytes(instructions: &str, charset: &str) -> Vec<i64> {
+    let charset_index = {
+        let mut arr = [62_usize; 256];
+        charset.graphemes(true).enumerate().for_each(|(i, g)| {
+            if let Some(&c) = g.as_bytes().first() {
+                arr[c as usize] = i;
+            }
+        });
         arr
     };
-}
 
-#[derive(Debug, Clone, Copy)]
-pub struct Value {
-    pub value: i64,
-    pub value_type: ValueType,
-}
-
-pub fn get_vm_bytes(instructions: &str) -> Vec<i64> {
-    let bytes = instructions.as_bytes();
-    let mut result = Vec::with_capacity(instructions.len() / 2);
-
-    let mut m = 0;
-    while m < bytes.len() {
+    let mut result = Vec::with_capacity(instructions.len() / 3);
+    let mut iter = instructions.graphemes(true).map(|g| g.as_bytes()[0]);
+    while let Some(mut byte) = iter.next() {
         let mut h = 0;
         let mut l = 1;
 
         loop {
-            let x = CHARSET_INDEX[bytes[m] as usize] as i64;
-            m += 1;
+            let x = charset_index[byte as usize] as i64;
 
-            h += l * (x % 50 as i64);
-            if x < 50 as i64 {
-                result.push(h as i64);
+            h += l * (x % 50);
+
+            if x < 50 {
+                result.push(h);
                 break;
             }
 
-            h += 50 as i64 * l;
-            l *= 12 as i64;
+            h += 50 * l;
+            l *= 12;
+
+            byte = iter.next().unwrap();
         }
     }
 
     result
+}
+
+pub fn decode_vm_bytes(mut vm_bytes: Vec<i64>) -> (String, Vec<i64>) {
+    let len = vm_bytes.len() as i64;
+    let offset = (vm_bytes[len as usize - 1] ^ (len + 4)) as usize;
+    let f_len = vm_bytes[offset + 1] as usize + 2;
+
+    let f = &vm_bytes[offset..offset + f_len];
+    let decoded = decode_string(f, &mut 0);
+
+    vm_bytes.copy_within(offset + f_len.., offset);
+    vm_bytes.truncate(vm_bytes.len() - f_len);
+
+    (decoded, vm_bytes)
 }
 
 fn decode_string(encoded: &[i64], index: &mut usize) -> String {
@@ -60,61 +56,17 @@ fn decode_string(encoded: &[i64], index: &mut usize) -> String {
     let length = encoded[*index] as usize;
     *index += 1;
 
-    (0..length)
-        .map(|_| {
-            let k = encoded[*index];
-            *index += 1;
-            let char_code = (k as u32 & 0xFFFFFFC0) | ((k * 59) & 63) as u32;
-            char::from_u32(char_code).unwrap_or('\0')
-        })
-        .collect()
-}
-
-pub fn decode_vm_bytes(mut vm_bytes: Vec<i64>) -> (String, Vec<i64>) {
-    let len = vm_bytes.len() as i64;
-    let offset = (vm_bytes[len as usize - 1] ^ (len + 4)) as usize;
-
-    let f_len = vm_bytes[offset + 1] as usize + 2;
-    let f: Vec<i64> = vm_bytes[offset..offset + f_len].to_vec();
-    vm_bytes.drain(offset..offset + f_len);
-
-    let decoded = decode_string(&f, &mut 0);
-    (decoded, vm_bytes)
-}
-
-pub fn get_value(t: GetType, x: i64, memory: &mut Memory) -> Value {
-    match t {
-        GetType::L => Value {
-            value: x >> 5,
-            value_type: ValueType::INDEX,
-        },
-        GetType::E => {
-            if x & 1 == 1 {
-                Value {
-                    value: x >> 1,
-                    value_type: ValueType::LITERAL,
-                }
-            } else {
-                Value {
-                    value: x >> 5,
-                    value_type: ValueType::INDEX,
-                }
-            }
+    let mut result = String::with_capacity(length);
+    for _ in 0..length {
+        let k = encoded[*index];
+        *index += 1;
+        let char_code = (k as u32 & 0xFFFFFFC0) | ((k * 59) & 63) as u32;
+        if let Some(c) = char::from_u32(char_code) {
+            result.push(c);
+        } else {
+            result.push('\0');
         }
-        GetType::I => {
-            let index = Value {
-                value: x >> 5,
-                value_type: ValueType::INDEX,
-            };
-
-            Value {
-                value: memory.get_value(index, false)[0].value,
-                value_type: ValueType::LITERAL,
-            }
-        }
-        _ => Value {
-            value: 0,
-            value_type: ValueType::UNKNOWN,
-        },
     }
+
+    result
 }

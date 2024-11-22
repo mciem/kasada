@@ -4,6 +4,12 @@ use oxc_ast::Visit;
 
 use rustc_hash::FxHashMap;
 
+use crate::ct::vm::value_handler::ValueError;
+
+pub enum OpcodeError {
+    InvalidOpcode,
+}
+
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum GetType {
     E,
@@ -12,34 +18,148 @@ pub enum GetType {
     Unknown,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Opcode {
     pub left: GetType,
     pub right: GetType,
+    pub op_type: OpcodeType,
 }
 
-#[derive(Debug)]
-pub struct Opcodes {
-    pub r_shift: FxHashMap<usize, Opcode>,
-    pub l_shift: FxHashMap<usize, Opcode>,
-    pub not: FxHashMap<usize, Opcode>,
-    pub xor: FxHashMap<usize, Opcode>,
-    pub and: FxHashMap<usize, Opcode>,
-    pub or: FxHashMap<usize, Opcode>,
-    pub add: FxHashMap<usize, Opcode>,
-    pub subtract: FxHashMap<usize, Opcode>,
-    pub multiply: FxHashMap<usize, Opcode>,
-    pub divide: FxHashMap<usize, Opcode>,
-    pub modulus: FxHashMap<usize, Opcode>,
-    pub get: FxHashMap<usize, Opcode>,
-    pub get_property: FxHashMap<usize, Opcode>,
-    pub store_global: FxHashMap<usize, Opcode>,
-    pub get_global: FxHashMap<usize, Opcode>,
-    pub delete: FxHashMap<usize, Opcode>,
+#[derive(PartialEq, Debug, Clone)]
+pub enum OpcodeType {
+    RShift,
+    LShift,
+    Not,
+    Xor,
+    And,
+    Or,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulus,
+    Get,
+    GetProperty,
+    StoreGlobal,
+    GetGlobal,
+    Void,
+    Apply,
+    None,
 }
 
+impl Opcode {
+    pub fn new(left: GetType, right: GetType, op_type: OpcodeType) -> Self {
+        Self {
+            left,
+            right,
+            op_type,
+        }
+    }
+
+    // going to be used for logging purposes
+    pub fn to_string(&self) -> &str {
+        match self.op_type {
+            OpcodeType::RShift => ">>",
+            OpcodeType::LShift => "<<",
+            OpcodeType::Not => "!",
+            OpcodeType::Xor => "^",
+            OpcodeType::And => "&",
+            OpcodeType::Or => "|",
+            OpcodeType::Add => "+",
+            OpcodeType::Subtract => "-",
+            OpcodeType::Multiply => "*",
+            OpcodeType::Divide => "/",
+            OpcodeType::Modulus => "%",
+            OpcodeType::Get => "get",
+            OpcodeType::GetProperty => "getProperty",
+            OpcodeType::StoreGlobal => "storeGlobal",
+            OpcodeType::GetGlobal => "getGlobal",
+            OpcodeType::Void => "void",
+            OpcodeType::Apply => "apply",
+            OpcodeType::None => "none",
+        }
+    }
+
+    pub fn is_executable(&self) -> bool {
+        match self.op_type {
+            OpcodeType::RShift
+            | OpcodeType::LShift
+            | OpcodeType::Xor
+            | OpcodeType::And
+            | OpcodeType::Or
+            | OpcodeType::Add
+            | OpcodeType::Subtract
+            | OpcodeType::Multiply
+            | OpcodeType::Divide
+            | OpcodeType::Modulus => true,
+            _ => false,
+        }
+    }
+
+    pub fn execute(&self, x: i64, y: i64) -> Result<i64, ValueError> {
+        match self.op_type {
+            OpcodeType::RShift => Ok(x >> y),
+            OpcodeType::LShift => Ok(x << y),
+            OpcodeType::Xor => Ok(x ^ y),
+            OpcodeType::And => Ok(x & y),
+            OpcodeType::Or => Ok(x | y),
+            OpcodeType::Add => Ok(x + y),
+            OpcodeType::Subtract => Ok(x - y),
+            OpcodeType::Multiply => Ok(x * y),
+            OpcodeType::Divide => {
+                if y == 0 {
+                    Err(ValueError::MathError("Division by zero".to_string()))
+                } else {
+                    Ok(x / y)
+                }
+            }
+            OpcodeType::Modulus => {
+                if y == 0 {
+                    Err(ValueError::MathError("Modulus by zero".to_string()))
+                } else {
+                    Ok(x % y)
+                }
+            }
+            _ => Err(ValueError::MathError("Operation not supported".to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct OpcodesHandler {
+    list: FxHashMap<usize, Opcode>,
+}
+
+impl OpcodesHandler {
+    pub fn new() -> Self {
+        Self {
+            list: FxHashMap::default(),
+        }
+    }
+
+    pub fn add(&mut self, index: usize, op: Opcode) {
+        self.list.insert(index, op);
+    }
+
+    pub fn get(&self, index: usize) -> Result<&Opcode, OpcodeError> {
+        if let Some(list) = self.list.get(&index) {
+            Ok(list)
+        } else {
+            Err(OpcodeError::InvalidOpcode)
+        }
+    }
+
+    pub fn get_by_type(&self, op_type: OpcodeType) -> Vec<&Opcode> {
+        self.list
+            .values()
+            .filter(|op| op.op_type == op_type)
+            .collect()
+    }
+}
+
+#[derive(Default)]
 pub struct OpcodeVisitor {
-    pub opcodes: Opcodes,
+    pub opcodes: OpcodesHandler,
     pub array: String,
     pub current_index: usize,
 }
@@ -56,31 +176,6 @@ impl OpcodeVisitor {
             }
         }
         GetType::Unknown
-    }
-
-    pub fn new() -> Self {
-        Self {
-            opcodes: Opcodes {
-                r_shift: FxHashMap::default(),
-                l_shift: FxHashMap::default(),
-                not: FxHashMap::default(),
-                xor: FxHashMap::default(),
-                and: FxHashMap::default(),
-                or: FxHashMap::default(),
-                add: FxHashMap::default(),
-                subtract: FxHashMap::default(),
-                multiply: FxHashMap::default(),
-                divide: FxHashMap::default(),
-                modulus: FxHashMap::default(),
-                get: FxHashMap::default(),
-                get_property: FxHashMap::default(),
-                store_global: FxHashMap::default(),
-                get_global: FxHashMap::default(),
-                delete: FxHashMap::default(),
-            },
-            array: String::new(),
-            current_index: 0,
-        }
     }
 }
 
@@ -108,152 +203,202 @@ impl<'a> Visit<'a> for OpcodeVisitor {
     }
 
     fn visit_function(&mut self, it: &Function<'a>, _: oxc_semantic::ScopeFlags) {
-        if let Some(body) = &it.body {
-            for stmt in &*body.statements {
-                if let Statement::ExpressionStatement(expr_stmt) = stmt {
-                    if let Expression::CallExpression(call_expr) = &expr_stmt.expression {
-                        self.visit_call_expression(call_expr);
-                    }
-                }
-            }
-        }
-
         walk::walk_function(self, it, oxc_semantic::ScopeFlags::all());
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        if let Expression::Identifier(ident) = &it.callee {
-            if &*ident.name.as_str() == "a" {
-                for arg in &it.arguments {
-                    match &*arg {
-                        Argument::UnaryExpression(unary_expr) => {
-                            let arg_type = Self::determine_type(&unary_expr.argument);
-                            let opcode = Opcode {
-                                left: arg_type,
-                                right: GetType::Unknown,
-                            };
+        match &it.callee {
+            Expression::Identifier(ident) => {
+                if &*ident.name.as_str() == "a" {
+                    for arg in &it.arguments {
+                        match &*arg {
+                            Argument::UnaryExpression(unary_expr) => {
+                                let arg_type = Self::determine_type(&unary_expr.argument);
 
-                            match unary_expr.operator {
-                                UnaryOperator::BitwiseNot => {
-                                    self.opcodes.not.insert(self.current_index, opcode);
-                                }
-                                UnaryOperator::Delete => {
-                                    self.opcodes.delete.insert(self.current_index, opcode);
-                                }
-                                _ => {}
-                            };
-                        }
-                        Argument::BinaryExpression(bin_expr) => {
-                            let left_type = Self::determine_type(&bin_expr.left);
-                            let right_type = Self::determine_type(&bin_expr.right);
-                            let opcode = Opcode {
-                                left: left_type,
-                                right: right_type,
-                            };
+                                match unary_expr.operator {
+                                    UnaryOperator::BitwiseNot => {
+                                        self.opcodes.add(
+                                            self.current_index,
+                                            Opcode {
+                                                left: arg_type,
+                                                right: GetType::Unknown,
+                                                op_type: OpcodeType::Not,
+                                            },
+                                        );
+                                    }
+                                    UnaryOperator::Void => {
+                                        self.opcodes.add(
+                                            self.current_index,
+                                            Opcode {
+                                                left: arg_type,
+                                                right: GetType::Unknown,
+                                                op_type: OpcodeType::Void,
+                                            },
+                                        );
+                                    }
+                                    _ => {}
+                                };
+                            }
+                            Argument::BinaryExpression(bin_expr) => {
+                                let left_type = Self::determine_type(&bin_expr.left);
+                                let right_type = Self::determine_type(&bin_expr.right);
+                                let mut opcode = Opcode {
+                                    left: left_type,
+                                    right: right_type,
+                                    op_type: OpcodeType::None,
+                                };
 
-                            match bin_expr.operator {
-                                BinaryOperator::ShiftRight => {
-                                    self.opcodes.r_shift.insert(self.current_index, opcode)
-                                }
-                                BinaryOperator::ShiftLeft => {
-                                    self.opcodes.l_shift.insert(self.current_index, opcode)
-                                }
-                                BinaryOperator::BitwiseXOR => {
-                                    self.opcodes.xor.insert(self.current_index, opcode)
-                                }
-                                BinaryOperator::BitwiseAnd => {
-                                    self.opcodes.and.insert(self.current_index, opcode)
-                                }
-                                BinaryOperator::BitwiseOR => {
-                                    self.opcodes.or.insert(self.current_index, opcode)
-                                }
-                                BinaryOperator::Addition => {
-                                    self.opcodes.add.insert(self.current_index, opcode)
-                                }
-                                BinaryOperator::Subtraction => {
-                                    self.opcodes.subtract.insert(self.current_index, opcode)
-                                }
-                                BinaryOperator::Multiplication => {
-                                    self.opcodes.multiply.insert(self.current_index, opcode)
-                                }
-                                BinaryOperator::Division => {
-                                    self.opcodes.divide.insert(self.current_index, opcode)
-                                }
-                                BinaryOperator::Remainder => {
-                                    self.opcodes.modulus.insert(self.current_index, opcode)
-                                }
-                                _ => None,
-                            };
-                        }
-                        Argument::ComputedMemberExpression(computed) => {
-                            let obj_type = Self::determine_type(&computed.object);
-                            let prop_type = Self::determine_type(&computed.expression);
+                                match bin_expr.operator {
+                                    BinaryOperator::ShiftRight => {
+                                        opcode.op_type = OpcodeType::RShift;
+                                        self.opcodes.add(self.current_index, opcode);
+                                    }
+                                    BinaryOperator::ShiftLeft => {
+                                        opcode.op_type = OpcodeType::LShift;
+                                        self.opcodes.add(self.current_index, opcode);
+                                    }
+                                    BinaryOperator::BitwiseXOR => {
+                                        opcode.op_type = OpcodeType::Xor;
+                                        self.opcodes.add(self.current_index, opcode);
+                                    }
+                                    BinaryOperator::BitwiseAnd => {
+                                        opcode.op_type = OpcodeType::And;
+                                        self.opcodes.add(self.current_index, opcode);
+                                    }
+                                    BinaryOperator::BitwiseOR => {
+                                        opcode.op_type = OpcodeType::Or;
+                                        self.opcodes.add(self.current_index, opcode);
+                                    }
+                                    BinaryOperator::Addition => {
+                                        opcode.op_type = OpcodeType::Add;
+                                        self.opcodes.add(self.current_index, opcode);
+                                    }
+                                    BinaryOperator::Subtraction => {
+                                        opcode.op_type = OpcodeType::Subtract;
+                                        self.opcodes.add(self.current_index, opcode);
+                                    }
+                                    BinaryOperator::Multiplication => {
+                                        opcode.op_type = OpcodeType::Multiply;
+                                        self.opcodes.add(self.current_index, opcode);
+                                    }
+                                    BinaryOperator::Division => {
+                                        opcode.op_type = OpcodeType::Divide;
+                                        self.opcodes.add(self.current_index, opcode);
+                                    }
+                                    BinaryOperator::Remainder => {
+                                        opcode.op_type = OpcodeType::Modulus;
+                                        self.opcodes.add(self.current_index, opcode);
+                                    }
+                                    _ => (),
+                                };
+                            }
+                            Argument::ComputedMemberExpression(computed) => {
+                                let obj_type = Self::determine_type(&computed.object);
+                                let prop_type = Self::determine_type(&computed.expression);
 
-                            if computed.object.is_member_expression() {
-                                self.opcodes.get_global.insert(
-                                    self.current_index,
-                                    Opcode {
-                                        left: GetType::Unknown,
-                                        right: GetType::E,
-                                    },
-                                );
-                            } else {
-                                if obj_type != GetType::Unknown && prop_type != GetType::Unknown {
-                                    self.opcodes.get_property.insert(
+                                if computed.object.is_member_expression() {
+                                    self.opcodes.add(
                                         self.current_index,
                                         Opcode {
-                                            left: obj_type,
-                                            right: prop_type,
+                                            left: GetType::Unknown,
+                                            right: GetType::E,
+                                            op_type: OpcodeType::GetGlobal,
                                         },
                                     );
+                                } else {
+                                    if obj_type != GetType::Unknown && prop_type != GetType::Unknown
+                                    {
+                                        self.opcodes.add(
+                                            self.current_index,
+                                            Opcode {
+                                                left: obj_type,
+                                                right: prop_type,
+                                                op_type: OpcodeType::GetProperty,
+                                            },
+                                        );
+                                    }
                                 }
                             }
-                        }
-                        Argument::CallExpression(call_expr) => {
-                            if let Expression::Identifier(ident) = &call_expr.callee {
-                                if &*ident.name.as_str() == "e" {
-                                    self.opcodes.get.insert(
-                                        self.current_index,
-                                        Opcode {
-                                            left: GetType::E,
-                                            right: GetType::Unknown,
-                                        },
-                                    );
+                            Argument::CallExpression(call_expr) => {
+                                if let Expression::Identifier(ident) = &call_expr.callee {
+                                    if &*ident.name.as_str() == "e" {
+                                        self.opcodes.add(
+                                            self.current_index,
+                                            Opcode {
+                                                left: GetType::E,
+                                                right: GetType::Unknown,
+                                                op_type: OpcodeType::Get,
+                                            },
+                                        );
+                                    }
                                 }
                             }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
             }
+
+            _ => {}
         }
+
         walk::walk_call_expression(self, it);
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
         let mut opcode = Opcode {
-            left: GetType::Unknown,
-            right: GetType::Unknown,
+            left: GetType::E,
+            right: GetType::E,
+            op_type: OpcodeType::None,
         };
 
         if let AssignmentTarget::ComputedMemberExpression(computed) = &it.left {
-            if let Expression::Identifier(ident) = &computed.expression {
-                if &*ident.name.as_str() == "u" {
-                    opcode.left = GetType::E;
+            match &computed.expression {
+                Expression::Identifier(ident) => {
+                    if &*ident.name.as_str() != "u" {
+                        return;
+                    }
+                }
+
+                Expression::NumericLiteral(num) => {
+                    if num.value == 2.0 {
+                        if let Expression::StaticMemberExpression(member) = &computed.object {
+                            if let Expression::Identifier(_) = &member.object {
+                                if let Expression::CallExpression(_) = &it.right {
+                                    opcode.op_type = OpcodeType::Apply;
+                                    self.opcodes.add(self.current_index, opcode);
+
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                _ => {}
+            }
+        }
+
+        match &it.right {
+            Expression::Identifier(ident) => {
+                if &*ident.name.as_str() == "r" {
+                    opcode.op_type = OpcodeType::StoreGlobal;
+                    self.opcodes.add(self.current_index, opcode);
                 }
             }
-        }
 
-        if let Expression::Identifier(ident) = &it.right {
-            if &*ident.name.as_str() == "r" {
-                opcode.right = GetType::E;
+            Expression::UnaryExpression(unary) => {
+                if unary.operator == UnaryOperator::Void {
+                    opcode.right = GetType::Unknown;
+
+                    opcode.op_type = OpcodeType::Void;
+                    self.opcodes.add(self.current_index, opcode);
+
+                    return;
+                }
             }
-        }
 
-        if opcode.left == GetType::E && opcode.right == GetType::E {
-            self.opcodes.store_global.insert(self.current_index, opcode);
+            _ => {}
         }
-
-        //walk::walk_assignment_expression(self, it);
     }
 }

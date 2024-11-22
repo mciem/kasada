@@ -6,7 +6,7 @@ use oxc_span::SourceType;
 use lazy_static::lazy_static;
 use regex::Regex;
 
-use super::visitors::opcodes::{OpcodeVisitor, Opcodes};
+use super::visitors::opcodes::{OpcodeVisitor, OpcodesHandler};
 use super::visitors::values::{Values, ValuesVisitor};
 
 lazy_static! {
@@ -26,7 +26,7 @@ pub fn find_list(string: String) -> Vec<i64> {
     }
 }
 
-pub fn parse(js_code: &str) -> (Opcodes, Values) {
+pub fn parse(js_code: &str) -> (OpcodesHandler, Values) {
     let allocator = Allocator::default();
 
     let ret = Parser::new(
@@ -38,10 +38,10 @@ pub fn parse(js_code: &str) -> (Opcodes, Values) {
 
     let program = ret.program;
 
-    let mut opcode = OpcodeVisitor::new();
+    let mut opcode = OpcodeVisitor::default();
     opcode.visit_program(&program);
 
-    let mut value = ValuesVisitor::new();
+    let mut value = ValuesVisitor::default();
     value.visit_program(&program);
 
     (opcode.opcodes, value.values)

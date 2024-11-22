@@ -1,344 +1,306 @@
-use super::memory::Memory;
 use super::parser::find_list;
-use super::utils::{get_value, ValueType};
-use super::visitors::opcodes::{GetType, Opcode, Opcodes};
-use super::visitors::values::Values;
-use rustc_hash::FxHashMap;
+use super::value_handler::{Value, ValueError, ValueHandler};
+use super::visitors::opcodes::{GetType, OpcodeType, OpcodesHandler};
+use super::visitors::values::GetValues;
 
-fn process_binary_operation<F>(
-    op_name: &str,
-    memory: &mut Memory,
-    drained_bytes: &[i64],
-    i: usize,
-    opcodes: &FxHashMap<usize, Opcode>,
-    operation: F,
-) where
-    F: Fn(i64, i64) -> i64,
-{
-    let opcode = opcodes.get(&(drained_bytes[i] as usize));
+#[derive(Default)]
+pub struct KeyBuilder {
+    pub drained_bytes: Vec<i64>,
+    pub handler: ValueHandler,
+    pub opcodes: OpcodesHandler,
+    pub list: Vec<i64>,
+    pub get: GetValues,
 
-    let opcode = match opcode {
-        Some(opcode) => opcode,
-        _ => panic!(
-            "Opcode not found: {:?}, opcode: {:?}",
-            drained_bytes[i], op_name
-        ),
-    };
-
-    let mut x = get_value(opcode.left, drained_bytes[i + 1], memory);
-    let mut y = get_value(opcode.right, drained_bytes[i + 2], memory);
-    let index = get_value(GetType::L, drained_bytes[i + 3], memory);
-
-    x = memory.get_value(x, false)[0];
-    y = memory.get_value(y, false)[0];
-
-    let result = operation(x.value, y.value);
-
-    memory.set_value(result, index.value as usize, false);
-
-    println!(
-        "{}: {:?} {:?} {} {:?} = {:?}; save: {:?}",
-        op_name, i, x, op_name, y, result, index
-    );
+    pub key: Vec<u8>,
+    pub iv: Vec<u8>,
 }
 
-pub fn get_key(
-    drained_bytes: Vec<i64>,
-    decoded: String,
-    opcodes: Opcodes,
-    values: Values,
-) -> Vec<u8> {
-    let mut list = find_list(decoded.clone());
-    list.drain(0..1);
+impl KeyBuilder {
+    pub fn new(
+        drained_bytes: Vec<i64>,
+        decoded: String,
+        get: GetValues,
+        opcodes: OpcodesHandler,
+    ) -> Self {
+        let handler = ValueHandler::new(decoded.chars().collect(), get.clone());
+        let list = find_list(decoded);
 
-    let decoded_chars = decoded.chars().collect::<Vec<char>>();
-    let mut start_looking = false;
-    let mut last_string = String::new();
-    let mut memory = Memory::new();
-    let mut skip = 0;
-    let mut key = Vec::new();
+        Self {
+            drained_bytes,
+            handler,
+            opcodes,
+            list,
+            get,
 
-    for i in 0..drained_bytes.len() {
-        if skip > 0 {
-            skip -= 1;
-            continue;
-        }
-
-        let byte = drained_bytes[i];
-        match byte {
-            b if opcodes.get_property.contains_key(&(b as usize)) => {
-                let opcode = opcodes.get_property.get(&(b as usize)).unwrap();
-
-                if drained_bytes[i + 2] == values.get_list[0] as i64 {
-                    let x = drained_bytes[i + 3] as usize;
-                    let y = drained_bytes[i + 4] as usize;
-                    let z = get_value(opcode.left, drained_bytes[i + 1], &mut memory);
-
-                    if x + y <= decoded_chars.len() {
-                        let string: String = decoded_chars[y..(x + y)].iter().collect();
-
-                        if string == "slice" && start_looking {
-                            list.drain(0..1);
-                        }
-
-                        if string == "slice" && last_string == "toString" {
-                            start_looking = true;
-
-                            memory.set_list(list.clone(), z.value as usize, false);
-                        } else if string == "length" && start_looking {
-                            let index = get_value(GetType::L, drained_bytes[i + 5], &mut memory);
-
-                            memory.set_value(list.len() as i64, index.value as usize, false);
-                        }
-
-                        last_string = string.clone();
-                    }
-
-                    skip = 5;
-                } else if start_looking {
-                    let x = get_value(opcode.left, drained_bytes[i + 1], &mut memory);
-                    let y = get_value(opcode.right, drained_bytes[i + 2], &mut memory);
-                    let index = get_value(GetType::L, drained_bytes[i + 3], &mut memory);
-
-                    if memory.get_value(y.clone(), false)[0].value == (list.len() - 1) as i64 {
-                        memory.set_value(list[list.len() - 1], index.value as usize, false);
-                        list.pop();
-                    } else if memory.get_value(y.clone(), false)[0].value == 1 as i64 {
-                        memory.set_value(list[1], index.value as usize, false);
-
-                        list.drain(0..1);
-                    }
-
-                    skip = 3;
-                } else {
-                    let x = get_value(opcode.left, drained_bytes[i + 1], &mut memory);
-                    let y = get_value(opcode.right, drained_bytes[i + 2], &mut memory);
-                    let index = get_value(GetType::L, drained_bytes[i + 3], &mut memory);
-
-                    if x.value_type == ValueType::INDEX
-                        && y.value_type == ValueType::LITERAL
-                        && y.value == 1
-                    {
-                        memory.set_value(list[0], index.value as usize, false);
-                    }
-
-                    skip = 3;
-                }
-            }
-
-            b if opcodes.get.contains_key(&(b as usize)) && start_looking => {
-                let opcode = opcodes.get.get(&(b as usize)).unwrap();
-
-                let x = get_value(opcode.left, drained_bytes[i + 1], &mut memory);
-                let index = get_value(GetType::L, drained_bytes[i + 2], &mut memory);
-
-                let value = memory.get_value(x.clone(), false)[0];
-
-                println!("getttt: {:?}, {:?}", index, value);
-
-                memory.set_value(value.value, index.value as usize, false);
-
-                skip = 2;
-            }
-
-            b if opcodes.store_global.contains_key(&(b as usize)) && start_looking => {
-                let opcode = opcodes.store_global.get(&(b as usize)).unwrap();
-
-                let mut z = i.clone();
-                loop {
-                    z += 1;
-
-                    let x = get_value(opcode.left, drained_bytes[z], &mut memory);
-                    if x.value_type == ValueType::UNKNOWN {
-                        continue;
-                    }
-
-                    let y = get_value(opcode.right, drained_bytes[z + 1], &mut memory);
-                    let values = memory.get_value(y.clone(), false);
-
-                    if values.len() == 1 {
-                        memory.set_value(values[0].value, x.value as usize, true);
-                    } else {
-                        memory.set_list(
-                            values.iter().map(|&x| x.value).collect(),
-                            x.value as usize,
-                            true,
-                        );
-                    }
-
-                    break;
-                }
-
-                skip = z - i;
-            }
-
-            b if opcodes.get_global.contains_key(&(b as usize)) && start_looking => {
-                let opcode = opcodes.get_global.get(&(b as usize)).unwrap();
-
-                let mut z = i.clone();
-                loop {
-                    z += 1;
-
-                    let mut x = get_value(opcode.right, drained_bytes[z], &mut memory);
-                    if x.value_type == ValueType::UNKNOWN {
-                        continue;
-                    }
-                    x.value_type = ValueType::INDEX;
-
-                    let index = get_value(opcode.right, drained_bytes[z + 1], &mut memory);
-                    let values = memory.get_value(x.clone(), true);
-
-                    if values.len() == 1 {
-                        memory.set_value(values[0].value, index.value as usize, false);
-                    } else {
-                        memory.set_list(
-                            values.iter().map(|&x| x.value).collect(),
-                            index.value as usize,
-                            false,
-                        );
-                    }
-
-                    break;
-                }
-
-                skip = z - i;
-            }
-
-            b if opcodes.r_shift.contains_key(&(b as usize)) && start_looking => {
-                process_binary_operation(
-                    "R_SHIFT",
-                    &mut memory,
-                    &drained_bytes,
-                    i,
-                    &opcodes.r_shift,
-                    |x, y| x >> y,
-                );
-
-                skip = 3;
-            }
-
-            b if opcodes.l_shift.contains_key(&(b as usize)) && start_looking => {
-                process_binary_operation(
-                    "L_SHIFT",
-                    &mut memory,
-                    &drained_bytes,
-                    i,
-                    &opcodes.l_shift,
-                    |x, y| x << y,
-                );
-
-                skip = 3;
-            }
-
-            b if opcodes.add.contains_key(&(b as usize)) && start_looking => {
-                process_binary_operation(
-                    "ADD",
-                    &mut memory,
-                    &drained_bytes,
-                    i,
-                    &opcodes.add,
-                    |x, y| x + y,
-                );
-
-                skip = 3;
-            }
-
-            b if opcodes.subtract.contains_key(&(b as usize)) && start_looking => {
-                process_binary_operation(
-                    "SUB",
-                    &mut memory,
-                    &drained_bytes,
-                    i,
-                    &opcodes.subtract,
-                    |x, y| x - y,
-                );
-
-                skip = 3;
-            }
-
-            b if opcodes.xor.contains_key(&(b as usize)) && start_looking => {
-                process_binary_operation(
-                    "XOR",
-                    &mut memory,
-                    &drained_bytes,
-                    i,
-                    &opcodes.xor,
-                    |x, y| x ^ y,
-                );
-
-                skip = 3;
-            }
-
-            b if opcodes.and.contains_key(&(b as usize)) && start_looking => {
-                process_binary_operation(
-                    "AND",
-                    &mut memory,
-                    &drained_bytes,
-                    i,
-                    &opcodes.and,
-                    |x, y| x & y,
-                );
-
-                skip = 3;
-            }
-
-            b if opcodes.or.contains_key(&(b as usize)) && start_looking => {
-                process_binary_operation(
-                    "OR",
-                    &mut memory,
-                    &drained_bytes,
-                    i,
-                    &opcodes.or,
-                    |x, y| x | y,
-                );
-
-                skip = 3;
-            }
-
-            b if opcodes.divide.contains_key(&(b as usize)) && start_looking => {
-                process_binary_operation(
-                    "DIV",
-                    &mut memory,
-                    &drained_bytes,
-                    i,
-                    &opcodes.divide,
-                    |x, y| x / y,
-                );
-
-                skip = 3;
-            }
-
-            b if opcodes.modulus.contains_key(&(b as usize)) && start_looking => {
-                process_binary_operation(
-                    "MOD",
-                    &mut memory,
-                    &drained_bytes,
-                    i,
-                    &opcodes.modulus,
-                    |x, y| x % y,
-                );
-
-                skip = 3;
-            }
-
-            b if opcodes.not.contains_key(&(b as usize)) && start_looking => {
-                let opcode = opcodes.not.get(&(b as usize)).unwrap();
-
-                let mut x = get_value(opcode.left, drained_bytes[i + 1], &mut memory);
-                let index = get_value(GetType::L, drained_bytes[i + 2], &mut memory);
-
-                x = memory.get_value(x, false)[0];
-
-                let value = !x.value;
-                memory.set_value(value, index.value as usize, false);
-
-                println!("NOT: {:?} {:?} NOT {:?}; save: {:?}", i, x, value, index);
-
-                skip = 2;
-            }
-            _ => {}
+            key: Vec::new(),
+            iv: Vec::new(),
         }
     }
 
-    key
+    pub fn generate(&mut self) -> Result<Vec<u8>, ValueError> {
+        let mut list_loaded = false;
+        let mut list_string_loaded = false;
+
+        let mut skip = 0;
+        for i in 0..self.drained_bytes.len() {
+            if skip > 0 {
+                skip -= 1;
+                continue;
+            }
+
+            if let Ok(opcode) = self.opcodes.get(self.drained_bytes[i] as usize) {
+                if opcode.is_executable() && list_loaded {
+                    let x = self
+                        .handler
+                        .get_value(opcode.left, vec![self.drained_bytes[i + 1]], false)?
+                        .as_literal()?;
+
+                    let y = self
+                        .handler
+                        .get_value(opcode.left, vec![self.drained_bytes[i + 2]], false)?
+                        .as_literal()?;
+
+                    let result = opcode.execute(x, y)?;
+                    let index = self
+                        .handler
+                        .get_value(GetType::L, vec![self.drained_bytes[i + 3]], false)?
+                        .as_literal()?;
+
+                    self.handler
+                        .set_value(Value::Literal(result), index as usize, false)?;
+                }
+
+                match opcode.op_type {
+                    OpcodeType::GetProperty => {
+                        if !list_loaded {
+                            continue;
+                        }
+
+                        let x = self.handler.get_value(
+                            opcode.left,
+                            vec![self.drained_bytes[i + 1]],
+                            false,
+                        )?;
+
+                        let y = self.handler.get_value(
+                            opcode.left,
+                            vec![
+                                self.drained_bytes[i + 2],
+                                self.drained_bytes[i + 3],
+                                self.drained_bytes[i + 4],
+                            ],
+                            false,
+                        )?;
+
+                        if y.is_string() {
+                            // string handling here
+                            // ...
+
+                            skip = 5;
+                        } else {
+                            let _index = self.handler.get_value(
+                                GetType::I,
+                                vec![self.drained_bytes[i + 3]],
+                                false,
+                            )?;
+
+                            // non string handling
+                            // ...
+
+                            skip = 3;
+                        }
+                    }
+
+                    /*
+                    OpcodeType::Apply => {
+                        have to do this ...
+                    }
+                    */
+                    OpcodeType::Get => {
+                        if !list_loaded {
+                            continue;
+                        }
+
+                        let x = self.handler.get_value(
+                            opcode.left,
+                            vec![
+                                self.drained_bytes[i + 1],
+                                self.drained_bytes[i + 2],
+                                self.drained_bytes[i + 3],
+                            ],
+                            false,
+                        )?;
+
+                        let index = if x.is_string() {
+                            self.handler
+                                .get_value(GetType::I, vec![self.drained_bytes[i + 4]], false)?
+                                .as_literal()?
+                        } else {
+                            self.handler
+                                .get_value(GetType::I, vec![self.drained_bytes[i + 2]], false)?
+                                .as_literal()?
+                        };
+
+                        self.handler.set_value(x, index as usize, false)?;
+
+                        skip = 2;
+                    }
+
+                    OpcodeType::StoreGlobal => {
+                        if !list_string_loaded {
+                            if let Ok(x) = self.handler.get_value(
+                                opcode.right,
+                                vec![
+                                    self.drained_bytes[i + 2],
+                                    self.drained_bytes[i + 3],
+                                    self.drained_bytes[i + 4],
+                                ],
+                                false,
+                            ) {
+                                if x.is_string() {
+                                    let str = x.as_string()?;
+                                    if str.as_bytes().len() == 0 {
+                                        continue;
+                                    }
+
+                                    if str.as_bytes()[0] == '[' as u8 {
+                                        list_string_loaded = true;
+
+                                        let index = self.handler.get_value(
+                                            opcode.left,
+                                            vec![self.drained_bytes[i + 1]],
+                                            false,
+                                        )?;
+                                        println!("StoreGlobal : {:?} : {:?}", index, str);
+                                        self.handler.set_value(
+                                            x,
+                                            index.as_literal()? as usize,
+                                            true,
+                                        )?;
+                                    };
+                                }
+                            }
+
+                            continue;
+                        }
+
+                        if !list_loaded {
+                            continue;
+                        }
+
+                        let mut i_2 = i.clone();
+                        loop {
+                            i_2 += 1;
+
+                            if let Ok(x) = self.handler.get_value(
+                                opcode.left,
+                                vec![self.drained_bytes[i_2]],
+                                false,
+                            ) {
+                                let y = self.handler.get_value(
+                                    opcode.right,
+                                    vec![
+                                        self.drained_bytes[i_2 + 1],
+                                        self.drained_bytes[i_2 + 2],
+                                        self.drained_bytes[i_2 + 3],
+                                    ],
+                                    false,
+                                )?;
+
+                                self.handler.set_value(y, x.as_literal()? as usize, true)?;
+
+                                break;
+                            }
+                        }
+                    }
+
+                    OpcodeType::GetGlobal => {
+                        if !list_string_loaded {
+                            continue;
+                        }
+
+                        if !list_loaded {
+                            if let Ok(x) = self.handler.get_value(
+                                opcode.right,
+                                vec![self.drained_bytes[i + 1]],
+                                true,
+                            ) {
+                                println!(
+                                    "GetGlobal : {:?} : {:?}",
+                                    self.drained_bytes[i + 1] >> 1,
+                                    x
+                                );
+                            }
+                            continue;
+                        }
+
+                        let mut i_2 = i.clone();
+
+                        loop {
+                            i_2 += 1;
+
+                            if let Ok(x) = self.handler.get_value(
+                                opcode.right,
+                                vec![self.drained_bytes[i_2]],
+                                true,
+                            ) {
+                                let y = self.handler.get_value(
+                                    GetType::I,
+                                    vec![self.drained_bytes[i_2 + 1]],
+                                    false,
+                                )?;
+
+                                self.handler.set_value(x, y.as_literal()? as usize, false)?;
+
+                                break;
+                            }
+                        }
+                    }
+
+                    OpcodeType::Not => {
+                        if !list_loaded {
+                            continue;
+                        }
+
+                        let x = self.handler.get_value(
+                            opcode.left,
+                            vec![self.drained_bytes[i + 1]],
+                            false,
+                        )?;
+
+                        let index = self
+                            .handler
+                            .get_value(GetType::I, vec![self.drained_bytes[i + 2]], false)?
+                            .as_literal()?;
+
+                        let value = !x.as_literal()?;
+                        self.handler
+                            .set_value(Value::Literal(value), index as usize, false)?;
+
+                        skip = 2;
+                    }
+
+                    OpcodeType::Void => {
+                        if !list_loaded {
+                            continue;
+                        }
+
+                        let x = self.handler.get_value(
+                            GetType::I,
+                            vec![self.drained_bytes[i + 2]],
+                            false,
+                        )?;
+
+                        self.handler.delete_value(x.as_literal()? as usize, true)?;
+
+                        skip = 2;
+                    }
+
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(self.key.clone())
+    }
 }
